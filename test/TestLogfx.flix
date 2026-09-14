@@ -235,7 +235,7 @@ mod TestLogfx {
     @Test
     def testSinkJson(): Unit \ IO + Assert =
         let lines = Ref.fresh(Static, Nil);
-        Logfx.runWith(Logfx.Sink.json(() -> 1757300000123i64, line -> Ref.put(line :: Ref.get(lines), lines)), () -> Fields.empty() |> Fields.str("k", "v") |> Logfx.info("m"));
+        Logfx.runWith(Logfx.Sink.json(() -> checked_ecast(1757300000123i64), line -> Ref.put(line :: Ref.get(lines), lines)), () -> Fields.empty() |> Fields.str("k", "v") |> Logfx.info("m"));
         Assert.assertEq(
             expected = List#{"{\"time\":\"2025-09-08T02:53:20.123Z\",\"severity\":\"info\",\"message\":\"m\",\"k\":\"v\"}"},
             Ref.get(lines))

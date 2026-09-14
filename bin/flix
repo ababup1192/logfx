@@ -31,9 +31,10 @@ if ! "$JAVA_CMD" -version >/dev/null 2>&1; then
     exit 127
 fi
 
-# WhyNot: --Xsubeffecting=lambdas を外さないのは、これが無いと effect 無しのラムダを
-# `\ IO` の関数型に渡せず、GraphQL の純粋なリゾルバ全部に checked_ecast が要るため。
-# experimental なフラグなので、消えたら checked_ecast を規約に戻す。
+# WhyNot: --Xsubeffecting=lambdas を付けない（flix_graphql_hello の同じ script は付ける）。
+# 利用側は素の flix で取り込むので、このフラグ込みでしか通らないコードを書くと、
+# 手元では緑のまま取り込み不能な版が出る（実際 0.1.0 の Sink.silent がそうなっていた）。
+# 純粋なラムダを `\ IO` に渡す所は checked_ecast を書く。
 # WhyNot: GitHub の依存（github:ababup1192/sqlfx）を認証なしで解決しない。CI の runner は
 # IP を共有していて、認証なしの API 制限にすぐ当たり、ビルドが依存の解決で落ちる。
 # WhyNot: コンパイラを 2 つ同時に走らせない。1 回の型検査が 3 GB 使うので、並行作業で
@@ -45,7 +46,7 @@ if [ -z "${FLIX_NO_LOCK:-}" ] && [ -x "$(dirname "$0")/with-lock" ]; then
 fi
 
 if [ -n "${GITHUB_TOKEN:-}" ]; then
-    exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@" --github-token "$GITHUB_TOKEN" --Xsubeffecting=lambdas
+    exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@" --github-token "$GITHUB_TOKEN"
 fi
 
-exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@" --Xsubeffecting=lambdas
+exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@"

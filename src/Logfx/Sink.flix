@@ -69,9 +69,15 @@ mod Logfx.Sink {
         let message: String = error.getMessage();
         if (Object.isNull(message)) "" else message
 
+    ///
     /// 何も出さない。テストの Deps など、出力先の要らない所に。
+    ///
+    /// WhyNot: `_ -> ()` と書かない。純粋なラムダを `\ IO` の関数型に渡すには
+    /// --Xsubeffecting=lambdas（experimental）が要る。利用側は素の flix で取り込むので、
+    /// ライブラリの側が実験フラグを要求してはいけない。
+    ///
     pub def silent(): Logfx.Sink =
-        _ -> ()
+        _ -> checked_ecast(())
 
     /// テスト用。行を Ref に積む（新しい物が先頭）。spawn の中から使える。
     pub def collect(sink: Ref[List[Logfx.Record], Static]): Logfx.Sink =
