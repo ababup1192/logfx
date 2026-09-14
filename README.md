@@ -17,7 +17,7 @@ Logfx.runWith(sink, () -> {
 ```
 
 ```json
-{"time":"2026-09-14T07:00:00.000Z","severity":"INFO","message":"request finished","http.method":"GET","http.status_code":200}
+{"time":"2026-09-14T07:00:00.000Z","severity":"info","message":"request finished","http.method":"GET","http.status_code":200}
 ```
 
 ## 入れる
@@ -40,7 +40,7 @@ Logfx.runWith(sink, () -> {
 | `Logfx.Fields` | フィールドのビルダー。`str` / `int`（`Int64`）/ `bool` / `strs` / `opt` / `merge` をパイプで繋ぐ |
 | `Logfx.Sink` | `Record -> Unit \ IO`。**値なので利用側が差せる**。`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich` |
 | `Logfx.withFields` | 入れ子の文脈。中で出る行すべてにフィールドが付く |
-| `Logfx.exception` | `Throwable` から `exception.type` / `.message` / `.stacktrace` を作る（cause を辿る） |
+| `Logfx.exception` | `Throwable` から `exception.type` / `.message` / `.stacktrace` を作る |
 | `Logfx.runWith` | 本番の handler |
 | `Logfx.runWithList` | **テスト用の handler。** 出た行を `List[Record]` で受け取る |
 | `Logfx.Value` | フィールドに入る値。JSON と同じ形 |
@@ -56,8 +56,10 @@ Logfx.runWith(sink, () -> {
 
 **`runWithList` がある。** ログはテストできる。「この操作でこの行が出る」を表駆動で書ける。
 
-**`Logfx.Value` を自前で持つ。** 利用側の JSON の型を借りると依存の向きが逆になり、切り出せなくなる。
-変換は利用側の境界で書く。
+**`Logfx.Value` を自前で持つ。** 理由は 2 つ。利用側の JSON の型を借りると依存の向きが逆になり、
+切り出せなくなる（実際、切り出す前は GraphQL の `Value` を借りていた）。もう 1 つは、標準の
+`Util.Json.Json` は数を `BigDecimal` 1 つで持つので整数と小数を区別できず、`12` が `12.0` として
+出てしまう。変換は利用側の境界で書く。
 
 **トップレベルに一般名を置かない。** Flix はモジュールを隠せないので、`Log` や `Value` を
 トップレベルに置くと利用側と衝突する。すべて `Logfx` の下にある。
