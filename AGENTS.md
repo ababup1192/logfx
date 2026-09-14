@@ -51,8 +51,10 @@ nextcms（Flix 製のヘッドレス CMS。非公開のリポジトリなので�
   README が「`0.x` の minor は release note を読め」と書いているので、読む物が要る
 - **push してから `make release`。** tag はリモートの HEAD に付くので、未 push のコミットがあると
   バージョンだけ進んだ release ができる（0.2.1 で実際に踏んだ）
-- **バージョンを上げたら `examples/*/flix.toml` の logfx のバージョンも上げる。** ずれていると `ci/example.sh`
-  が止まる（例が、どの release にも無い API を指したままになる為）
+- **バージョンを上げたら `examples/*/flix.toml` と `bench/flix.toml` の logfx のバージョンも上げる。**
+  ずれていると `ci/example.sh` と `ci/bench.sh` が止まる（例が、どの release にも無い API を指したままになる為）
+- **`bench/` は CI で走らせない。** 共有 runner の時間は、拾いたい変化より大きく揺れる。
+  1 台の機械で `make bench` を回し、自分の基準値と比べる
 - **README の最初のコード片は `examples/quickstart` の写し。** 直す時は両方。
   あちらが本体で、README のコードは誰もコンパイルしない
 
@@ -85,6 +87,7 @@ make check-jargon # 日本語に、言い換え先のある語が残っていな
 make test         # テスト
 make consume      # まっさらなプロジェクトから取り込んで動かす（ci/consume.sh local）
 make examples     # examples/ を今のソースに対してビルドして走らせる（ci/example.sh）
+make bench        # 1 行のコストを測り、docs/bench/baseline.json と比べる（ci/bench.sh）
 make doc          # 公開する API リファレンス（ci/doc.sh → build/doc/）
 make pkg          # 配布用の .fpkg（build/logfx/artifact/）
 make release      # GitHub の release に .fpkg と flix.toml を付ける
@@ -104,8 +107,9 @@ make release      # GitHub の release に .fpkg と flix.toml を付ける
 | `src/Logfx/Sink.flix` | Sink（`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich` / `tee` / `fallback`） |
 | `test/TestLogfx.flix` | 表駆動のテスト |
 | `examples/` | 利用側から書いたコード。`quickstart`（README の最初の塊）と `server`（組み込み一式） |
+| `bench/` | 1 行のコストを測るプロジェクト。基準値は `docs/bench/baseline.json` |
 | `docs/release-notes/` | バージョンごとの release note（`make release` が `--notes-file` で使う） |
 | `scripts/` | 日本語の言い換えの表と、それを見張る `check-jargon.sh` |
-| `ci/` | 取り込み側から見る smoke（`consume.sh` と捨てプロジェクトの `consumer/`）、`example.sh`、リファレンスの `doc.sh` |
+| `ci/` | 取り込み側から見る smoke（`consume.sh` と捨てプロジェクトの `consumer/`）、`example.sh`、`bench.sh`、リファレンスの `doc.sh` |
 | `.github/workflows/ci.yml` | push ごとの `make check` / `make test` / 取り込み / `make examples` |
 | `.github/workflows/pages.yml` | tag を打った時だけ、`make doc` の結果を GitHub Pages に置く |

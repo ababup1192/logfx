@@ -17,5 +17,8 @@ grep -q '"exception.stacktrace":"Handler\.[^"]*(Handler\.flix:[0-9]*)' "$out"
 ! grep -q '"exception.stacktrace":"[^"]*(/' "$out"
 # Info is the default, so the debug line stays out.
 ! grep -q '"message":"routing"' "$out"
-# /health emits nothing at Info. What comes out is /posts and /nope.
-[ "$(grep -c '^{' "$out")" = "2" ]
+# A job on another thread still names the request: the span travelled in the sink.
+grep -q '"job.kind":"webhook"[^}]*"request.id":"r2"' "$out"
+grep -q '"job.kind":"reindex"[^}]*"request.id":"r3"' "$out"
+# /health emits nothing at Info. What comes out is /posts, /nope and the two jobs.
+[ "$(grep -c '^{' "$out")" = "4" ]

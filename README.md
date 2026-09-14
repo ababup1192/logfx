@@ -286,7 +286,35 @@ per request belongs in a span.
 An unknown word in `LOG_LEVEL` is not fatal here on purpose: a server that refuses to start over a
 typo in the configuration costs more than logging one severity off.
 
-The whole of that, with a span, an exception and tests, is [`examples/server`](examples/server).
+### Carrying a span onto another thread
+
+A span installed with `withFields` stops at the thread boundary, but the span itself is just a
+`Fields` value — and a `Sink` is just a value too. So the way across is to put the span in the sink
+before the thread starts:
+
+```flix
+let carried = Logfx.Sink.enrich(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId), sink);
+spawn {
+    run {
+        Jobs.perform(kind)                    // takes \ Logfx, knows nothing about any of this
+    } with Logfx.runWithMin(min, carried)
+} @ rc
+```
+
+```json
+{"time":"2026-09-14T09:24:25.224Z","severity":"info","message":"job done","job.kind":"webhook","job.outcome":"done","request.id":"r2","service.name":"example-server","service.version":"0.0.0"}
+```
+
+Work that no request is waiting for still says which request it came from, and `Jobs.perform` never
+learned how. `enrich` is the weakest layer, so a line inside the job can still say something else
+under the same key — which is what you want from a default.
+
+The one thing this does not give you is asking, from deep inside a call chain, *what span am I in?*
+Nothing reads the accumulated span back out. Build the span where you know it and hand it to the
+thread; that is the whole mechanism.
+
+The whole of that, with a span, an exception, a background job on another thread and tests, is
+[`examples/server`](examples/server).
 
 ## Where a field on a line comes from
 
@@ -360,6 +388,7 @@ make check-jargon # watch the Japanese prose for words with an agreed replacemen
 make test         # tests
 make consume      # build the .fpkg, pull it into a throwaway project, and run it
 make examples     # build examples/ against the working tree, run its tests and its output
+make bench        # measure what one line costs, against docs/bench/baseline.json
 make doc          # build the API reference published to GitHub Pages
 make pkg          # build the distributable .fpkg
 make release      # attach .fpkg and flix.toml to a GitHub release
@@ -664,7 +693,32 @@ Unable to unify the effect formulas: 'Logfx' and '(Chan + IO + NonDet) & e0'.
 `LOG_LEVEL` の知らない語でわざと落とさないのは、設定の綴り違いでサーバが起動しない方が、
 1 段ずれてログが出る事より高く付くため。
 
-span・exception・テストまで入った全体が [`examples/server`](examples/server)。
+### span を別のスレッドへ運ぶ
+
+`withFields` で張った span はスレッドの境目で止まる。ただし span そのものは `Fields` という値で、
+`Sink` もまた値。だから渡り方は、**スレッドが始まる前に span を Sink に入れておく**事:
+
+```flix
+let carried = Logfx.Sink.enrich(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId), sink);
+spawn {
+    run {
+        Jobs.perform(kind)                    // \ Logfx を取るだけ。この事情を何も知らない
+    } with Logfx.runWithMin(min, carried)
+} @ rc
+```
+
+```json
+{"time":"2026-09-14T09:24:25.224Z","severity":"info","message":"job done","job.kind":"webhook","job.outcome":"done","request.id":"r2","service.name":"example-server","service.version":"0.0.0"}
+```
+
+誰も待っていない仕事の行にも、どのリクエストから来たかが付く。`Jobs.perform` はその方法を
+一度も知らない。`enrich` は一番弱い層なので、job の中の行が同じキーで別の事を言う余地も残る。
+既定値に求めるのはその性質。
+
+これで足りないのは 1 つだけ。呼び出しの奥から「**今の span は何か**」を訊く事はできない。
+溜まった span を読み返す口が無いため。span は分かっている所で組んでスレッドに渡す——仕組みはそれだけ。
+
+span・exception・別スレッドの job・テストまで入った全体が [`examples/server`](examples/server)。
 
 ## 同じ行のフィールドは 3 か所から来る
 
@@ -735,6 +789,7 @@ make check-jargon # 日本語に、言い換え先のある語が残っていな
 make test         # テスト
 make consume      # .fpkg を作り、捨てプロジェクトから取り込んで動かす
 make examples     # examples/ を今のソースに対してビルドし、テストと出力を確かめる
+make bench        # 1 行のコストを測り、docs/bench/baseline.json と比べる
 make doc          # GitHub Pages に出す API リファレンス
 make pkg          # 配布用の .fpkg
 make release      # GitHub の release に .fpkg と flix.toml を付ける

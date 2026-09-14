@@ -16,7 +16,8 @@ def main(): Unit \ IO =
                 } with Logfx.runWithMin(min, sink)
             } @ rc
         }, Server.incoming())
-    }
+    };
+    Server.spawnJobs(min, sink)
 
 ///
 /// The wiring: build the sink, pick the severity, install the handler once per request.
@@ -66,5 +67,41 @@ mod Server {
     /// Stands in for the listener. Hands over (request.id, method, path) in turn.
     pub def incoming(): List[(String, String, String)] =
         List#{("r1", "GET", "/health"), ("r2", "GET", "/posts"), ("r3", "GET", "/nope")}
+
+    // ---- Work on another thread ----
+
+    ///
+    /// Starts the jobs a request left behind, each on its own thread, each still naming the
+    /// request it came from.
+    ///
+    /// A Logfx handler does not cross a thread, so `withFields` cannot reach into a `spawn`.
+    /// A `Sink` is a plain value and does cross, so the span travels inside the sink: one
+    /// `Sink.enrich` per job, built before the thread starts. `Jobs.perform` takes `\ Logfx` and
+    /// knows nothing about how it got there.
+    ///
+    /// WhyNot: the span is not passed to Jobs.perform as an argument. It would then have to be
+    /// threaded through every function the job calls, which is the thing the effect exists to
+    /// avoid. Only the thread's entry point needs to know.
+    ///
+    /// WhyNot: enrich rather than a second handler. Its fields are the weakest layer, so a line
+    /// inside the job can still say something different under the same key — which is what you
+    /// want from a default.
+    ///
+    pub def spawnJobs(min: Severity, sink: Logfx.Sink): Unit \ IO =
+        region rc {
+            List.forEach(job -> {
+                let (requestId, kind) = job;
+                let carried = Logfx.Sink.enrich(Fields.empty() |> Fields.str("request.id", requestId), sink);
+                spawn {
+                    run {
+                        Jobs.perform(kind)
+                    } with Logfx.runWithMin(min, carried)
+                } @ rc
+            }, queued())
+        }
+
+    /// Stands in for the queue. Hands over (request.id, job kind).
+    def queued(): List[(String, String)] =
+        List#{("r2", "webhook"), ("r3", "reindex")}
 
 }

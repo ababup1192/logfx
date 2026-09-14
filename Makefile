@@ -1,4 +1,4 @@
-.PHONY: check check-jargon test consume examples doc pkg release clean
+.PHONY: check check-jargon test consume examples bench doc pkg release clean
 
 # The Flix compiler jar is borrowed from a devbox profile; bin/flix resolves it.
 check:
@@ -18,6 +18,11 @@ consume:
 # Build and run examples/ against the .fpkg built from the current source.
 examples:
 	ci/example.sh
+
+# What one line costs, compared with docs/bench/baseline.json.
+# Run it on one machine and compare against itself; CI timings move too much to be useful.
+bench:
+	ci/bench.sh
 
 # Build the published reference (flix doc) into build/doc/.
 # On a tag, .github/workflows/pages.yml runs the same script and puts it on GitHub Pages.
