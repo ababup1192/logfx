@@ -174,8 +174,9 @@ effect, so the answer comes from the handler before anything is built:
 Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
 ```
 
-At a threshold of `Info` this emits nothing **and** `explain(sql)` never runs. Ask directly with
-`Logfx.enabled(severity)` when the work is bigger than one field.
+At a threshold of `Info` this emits nothing **and** `explain(sql)` never runs — 166 ns against the
+1,543 ns an emitted line costs. Ask directly with `Logfx.enabled(severity)` when the work is bigger
+than one field.
 
 **Keep the request alive when the sink dies.** `runWith` never lets a failing sink escape into your
 code: at the point the effect operation runs, the caller's frames are already unwound, so a throw
@@ -345,6 +346,30 @@ there is no flag to turn it off:
 | Integers | Kept as `Int64`, so pass an `Int32` through `Int32.toInt64`. A quiet `2147483647` is worse than a number that is obviously missing |
 
 A line with no fields still passes `Logfx.Fields.empty()`; there is no message-only form.
+
+## What a line costs
+
+One line with six fields, rendered as JSON and handed to a sink, is about **1.5 µs** — call it
+650,000 lines a second on one core. At one line per request that is 2% of a core at 10,000
+requests a second. Measured by `make bench` (Darwin arm64, fastest of seven rounds of 20,000);
+`docs/bench/baseline.json` is the recorded result and the thing a change is compared against.
+
+| | |
+|---|---:|
+| A line, emitted as JSON | 1,543 ns |
+| The effect and the handler, with a sink that writes nothing | 604 ns |
+| A line the threshold drops | 166 ns |
+| `Logfx.exception` on a caught exception | 7,166 ns |
+
+Two of those are worth reading twice. **A dropped line costs a ninth of an emitted one**, which is
+why the fields of a `debugWith` go behind a thunk. And **`Logfx.exception` costs more than four
+ordinary lines** — walking a stack trace is not cheap, so it belongs on the failure, not on the
+request.
+
+This is not the number logfx is best at. zap, zerolog and pino write a comparable line in a few
+hundred nanoseconds; if throughput is what decides your choice, they are the answer and this is not.
+Most of what is left here is building the `Fields` map, and that map is what lets you write your own
+merge rule — the cost and the capability are the same decision.
 
 ## Design
 
@@ -585,8 +610,8 @@ def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = ma
 Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
 ```
 
-段が `Info` なら行が出ないだけでなく、`explain(sql)` も走らない。フィールド 1 つより大きい仕事なら
-`Logfx.enabled(severity)` で直接訊く。
+段が `Info` なら行が出ないだけでなく、`explain(sql)` も走らない。166 ns で、出す行の 1,543 ns に対して
+9 分の 1。フィールド 1 つより大きい仕事なら `Logfx.enabled(severity)` で直接訊く。
 
 **Sink が壊れてもリクエストは死なない。** `runWith` は sink の例外を呼ぶ側に漏らさない。
 effect の op が走る時点で呼ぶ側の frame は巻き戻っていて、投げても呼ぶ側の `catch` を素通りし、
@@ -747,6 +772,27 @@ span・exception・別スレッドの job・テストまで入った全体が [`
 | 整数 | `Int64` のまま。`Int32` は `Int32.toInt64` で渡す。静かに読める `2147483647` の方が、明らかに欠けている数より悪い |
 
 fields の無い行も `Logfx.Fields.empty()` を渡す。message だけの形は無い。
+
+## 1 行の値段
+
+フィールド 6 つの行を JSON にして sink に渡すまでが **約 1.5 µs**。1 コアで毎秒 65 万行、
+1 リクエスト 1 行なら毎秒 1 万リクエストで CPU の 2%。`make bench` で測った値（Darwin arm64、
+20,000 回 × 7 ラウンドの最速）で、記録は `docs/bench/baseline.json` にあり、変更はそこと比べる。
+
+| | |
+|---|---:|
+| 1 行を JSON で出し切るまで | 1,543 ns |
+| effect と handler だけ（何も書かない sink） | 604 ns |
+| 段で落ちる行 | 166 ns |
+| 捕まえた例外に `Logfx.exception` | 7,166 ns |
+
+このうち 2 つは読み返す価値がある。**落とす行は出す行の 9 分の 1** で、これが `debugWith` の
+fields を thunk の後ろに置く理由。そして **`Logfx.exception` は普通の行 4 本分より高い**。
+stack trace を辿るのは安くないので、失敗の行に付ける物であって、リクエストの行に付ける物ではない。
+
+ここは logfx が一番得意な所ではない。zap・zerolog・pino は同じような行を数百 ns で書く。
+スループットで選ぶならそちらが答えで、これは違う。残っているコストの大半は `Fields` の
+`Map` を組む所で、その `Map` は独自のマージ規則を書ける理由でもある。**値段と自由は同じ判断の裏表。**
 
 ## 設計
 
