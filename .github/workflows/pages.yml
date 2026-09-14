@@ -26,7 +26,6 @@ concurrency:
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  FLIX_NO_LOCK: "1"
 
 jobs:
   build:

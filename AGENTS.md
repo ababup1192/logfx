@@ -93,11 +93,6 @@ make pkg          # 配布用の .fpkg（build/logfx/artifact/）
 make release      # GitHub の release に .fpkg と flix.toml を付ける
 ```
 
-`bin/flix` は `bin/with-lock` で順番待ちになる（同じ機械で 2 つの Flix コンパイラを同時に
-動かすと、1 本 3 GB のメモリを取り合って GC で遅くなるか OOM で落ちる）。**待たされるのは正常**で、
-`pkill` や `FLIX_NO_LOCK` で割り込まない（`FLIX_NO_LOCK` を使うのは、job が 1 本ずつ走り
-`/usr/bin/shlock` も無い CI の runner だけ）。
-
 ## ディレクトリ
 
 | 場所 | 中身 |

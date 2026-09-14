@@ -25,6 +25,90 @@ mod TestLogfx {
 
     // ---- toJsonLine ----
 
+    ///
+    /// The same line, built only from what the library makes public: strip the control characters,
+    /// then hand every key and every value to `Logfx.valueToJsonString`.
+    ///
+    /// WhyNot: this is not how `toJsonLine` should be written. It is here so that a faster writer
+    /// can be checked against the standard JSON encoder, byte for byte, on the table below.
+    ///
+    def referenceLine(timeMillis: Int64, record: Logfx.Record): String =
+        let head = List#{("time", Logfx.Value.Str(Logfx.timeText(timeMillis))),
+                         ("severity", Logfx.Value.Str(severityWord(record#severity))),
+                         ("message", Logfx.Value.Str(record#message))};
+        let rest = record#fields
+            |> Map.remove("time") |> Map.remove("severity") |> Map.remove("message") |> Map.toList;
+        List.append(head, rest)
+            |> List.map(match (key, value) ->
+                "${Logfx.valueToJsonString(Logfx.Value.Str(key))}:${Logfx.valueToJsonString(stripControl(value))}")
+            |> List.join(",")
+            |> body -> "{${body}}"
+
+    /// The severity as it is written in a line.
+    def severityWord(severity: Severity): String = match severity {
+        case Severity.Trace => "trace"
+        case Severity.Debug => "debug"
+        case Severity.Info  => "info"
+        case Severity.Warn  => "warn"
+        case Severity.Error => "error"
+        case Severity.Fatal => "fatal"
+    }
+
+    /// Control characters out of every string, lists and objects included.
+    def stripControl(value: Logfx.Value): Logfx.Value = match value {
+        case Logfx.Value.Str(text)   => Logfx.Value.Str(String.replaceMatches(regex = "\\p{Cntrl}", to = "", text))
+        case Logfx.Value.List(items) => Logfx.Value.List(List.map(stripControl, items))
+        case Logfx.Value.Obj(fields) => Logfx.Value.Obj(Map.map(stripControl, fields))
+        case other                   => other
+    }
+
+    ///
+    /// Every value logfx can hold, including the ones a hand-written writer is most likely to get
+    /// wrong: a quote, a backslash, characters outside ASCII, a surrogate pair, control characters
+    /// in and out of a nested value, both infinities, and an integer past Int32.
+    ///
+    def renderingCases(): List[(Int64, Logfx.Record)] =
+        let value = key -> v -> recordOf(Severity.Info, "m", Fields.empty() |> Fields.value(key, v));
+        List#{
+            (0i64,             recordOf(Severity.Info, "hello", Fields.empty())),
+            (1757300000123i64, value("s", Logfx.Value.Str("/posts"))),
+            (1757300000123i64, value("s", Logfx.Value.Str("say \"hi\""))),
+            (1757300000123i64, value("s", Logfx.Value.Str("C:\\tmp"))),
+            (1757300000123i64, value("s", Logfx.Value.Str("記事が見つかりません"))),
+            (1757300000123i64, value("s", Logfx.Value.Str("ok \uD83D\uDE00"))),
+            (1757300000123i64, value("s", Logfx.Value.Str(""))),
+            (1757300000123i64, value("s", Logfx.Value.Str("a\tb\nc"))),
+            (1757300000123i64, value("s", Logfx.Value.Str("a\u0007b\u007Fc"))),
+            (1757300000123i64, value("n", Logfx.Value.Int(3000000000i64))),
+            (1757300000123i64, value("n", Logfx.Value.Int(-7i64))),
+            (1757300000123i64, value("n", Logfx.Value.Int(0i64))),
+            (1757300000123i64, value("f", Logfx.Value.Float(0.5))),
+            (1757300000123i64, value("f", Logfx.Value.Float(12.0))),
+            (1757300000123i64, value("f", Logfx.Value.Float(-0.125))),
+            (1757300000123i64, value("f", Logfx.Value.Float(Float64.nan()))),
+            (1757300000123i64, value("f", Logfx.Value.Float(Float64.positiveInfinity()))),
+            (1757300000123i64, value("f", Logfx.Value.Float(Float64.negativeInfinity()))),
+            (1757300000123i64, value("b", Logfx.Value.Bool(false))),
+            (1757300000123i64, value("z", Logfx.Value.Null)),
+            (1757300000123i64, value("l", Logfx.Value.List(Nil))),
+            (1757300000123i64, value("l", Logfx.Value.List(List#{Logfx.Value.Str("a\tb"), Logfx.Value.Int(1i64), Logfx.Value.Null}))),
+            (1757300000123i64, value("o", Logfx.Value.Obj(Map.empty()))),
+            (1757300000123i64, value("o", Logfx.Value.Obj(Map#{"b" => Logfx.Value.Str("x\"y"), "a" => Logfx.Value.Int(2i64)}))),
+            (1757300000123i64, value("o", Logfx.Value.Obj(Map#{"in" => Logfx.Value.List(List#{Logfx.Value.Obj(Map#{"deep" => Logfx.Value.Str("記事")})})}))),
+            (1757300000123i64, recordOf(Severity.Warn, "記事 \"x\"", Fields.empty() |> Fields.str("a\"b", "c\\d"))),
+            (-86400000i64,     recordOf(Severity.Trace, "before 1970", Fields.empty()))
+        }
+
+    ///
+    /// toJsonLine writes exactly what the standard JSON encoder writes for the same values.
+    ///
+    @Test
+    def testToJsonLineMatchesTheJsonEncoder(): Unit \ Assert =
+        let cases = renderingCases();
+        Assert.assertEq(
+            expected = cases |> List.map(match (millis, record) -> referenceLine(millis, record)),
+            cases |> List.map(match (millis, record) -> Logfx.toJsonLine(millis, record)))
+
     /// Key order puts time / severity / message first and sorts the rest by name; severity is lowercase; numbers, booleans and lists keep their own type.
     @Test
     def testToJsonLineTable(): Unit \ Assert =

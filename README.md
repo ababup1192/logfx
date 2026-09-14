@@ -40,12 +40,12 @@ That is one line; it is wrapped here so you can read it.
 
 | | |
 |---|---|
-| Install | `"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }` under `[dependencies]` |
+| Install | `"github:ababup1192/logfx" = { version = "0.3.1", security = "unrestricted" }` under `[dependencies]` |
 | API reference | <https://ababup1192.github.io/logfx/Logfx.html> |
 | Runnable examples | [`examples/`](examples) — the block above is [`examples/quickstart`](examples/quickstart), and CI compiles it |
 
 `security = "unrestricted"` is required because `Logfx.exception` reads a `java.lang.Throwable`.
-The short form (`= "0.3.0"`) is rejected by Flix for a package that uses Java interop.
+The short form (`= "0.3.1"`) is rejected by Flix for a package that uses Java interop.
 
 ## What you can do with it
 
@@ -453,12 +453,12 @@ def main(): Unit \ IO =
 
 | | |
 |---|---|
-| 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }` |
+| 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.1", security = "unrestricted" }` |
 | API リファレンス | <https://ababup1192.github.io/logfx/Logfx.html> |
 | 動く例 | [`examples/`](examples) — 上の塊がそのまま [`examples/quickstart`](examples/quickstart) で、CI がコンパイルしている |
 
 `security = "unrestricted"` が要るのは、`Logfx.exception` が `java.lang.Throwable` を読むため。
-バージョンだけを書く短い形（`= "0.3.0"`）だと Flix が取り込みを断る。
+バージョンだけを書く短い形（`= "0.3.1"`）だと Flix が取り込みを断る。
 
 ## 何ができるか
 

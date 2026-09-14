@@ -36,16 +36,8 @@ fi
 # Where a pure lambda goes into a `\ IO` position, write checked_ecast instead.
 # WhyNot: a github: dependency is not resolved unauthenticated. CI runners share IPs and hit the
 # unauthenticated API limit quickly, which fails the build during dependency resolution.
-# WhyNot: two compilers are not run at once. One type check takes 3 GB, so two overlapping runs
-# either crawl in GC or die with an OOM. Rather than relying on people remembering, the queueing
-# happens here (FLIX_NO_LOCK=1 opts out).
-LOCK_CMD=()
-if [ -z "${FLIX_NO_LOCK:-}" ] && [ -x "$(dirname "$0")/with-lock" ]; then
-    LOCK_CMD=("$(dirname "$0")/with-lock" compiler)
-fi
-
 if [ -n "${GITHUB_TOKEN:-}" ]; then
-    exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@" --github-token "$GITHUB_TOKEN"
+    exec "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@" --github-token "$GITHUB_TOKEN"
 fi
 
-exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@"
+exec "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@"

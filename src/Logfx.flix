@@ -401,13 +401,128 @@ mod Logfx {
     /// WhyNot: control characters are not left to JSON escaping. A newline would not split the line,
     /// but a terminal escape sequence passes through and can forge one (log injection).
     ///
-    pub def toJsonLine(timeMillis: Int64, record: Record): String =
-        let head = List#{("time", Value.Str(timeText(timeMillis))), ("severity", Value.Str(severityText(record#severity))), ("message", Value.Str(record#message))};
-        let rest = record#fields |> Map.remove("time") |> Map.remove("severity") |> Map.remove("message") |> Map.toList;
-        List.append(head, rest)
-            |> List.map(match (key, value) -> "${Logfx.valueToJsonString(Value.Str(key))}:${Logfx.valueToJsonString(withoutControlChars(value))}")
-            |> List.join(",")
-            |> body -> "{${body}}"
+    pub def toJsonLine(timeMillis: Int64, record: Record): String = region rc {
+        let sb = StringBuilder.empty(rc);
+        StringBuilder.append('{', sb);
+        writePair("time", Value.Str(timeText(timeMillis)), sb);
+        StringBuilder.append(',', sb);
+        writePair("severity", Value.Str(severityText(record#severity)), sb);
+        StringBuilder.append(',', sb);
+        writePair("message", Value.Str(record#message), sb);
+        record#fields
+            |> Map.remove("time") |> Map.remove("severity") |> Map.remove("message")
+            |> Map.forEach(key -> value -> { StringBuilder.append(',', sb); writePair(key, value, sb) });
+        StringBuilder.append('}', sb);
+        StringBuilder.toString(sb)
+    }
+
+    /// `"key":value`.
+    def writePair(key: String, value: Value, sb: StringBuilder[r]): Unit \ r =
+        writeText(key, sb);
+        StringBuilder.append(':', sb);
+        writeValue(value, sb)
+
+    ///
+    /// Writes one value as JSON.
+    ///
+    /// WhyNot: not `Util.Json.toCompactString(valueToJson(value))`, which is what this used to be.
+    /// That builds a `Json` of its own for every key and every value and runs the encoder over it,
+    /// measured at 238 ns a time — 476 ns per field, and a line is mostly fields. Writing the
+    /// characters straight into the builder produces the same bytes, and
+    /// `testToJsonLineMatchesTheJsonEncoder` holds the two together.
+    ///
+    def writeValue(value: Value, sb: StringBuilder[r]): Unit \ r = match value {
+        case Value.Null        => StringBuilder.appendString("null", sb)
+        case Value.Bool(b)     => StringBuilder.appendString(if (b) "true" else "false", sb)
+        case Value.Int(n)      => StringBuilder.appendString(Int64.toString(n), sb)
+        case Value.Float(x)    => StringBuilder.appendString(floatText(x), sb)
+        case Value.Str(text)   => writeText(text, sb)
+        case Value.List(items) =>
+            if (List.isEmpty(items)) StringBuilder.appendString("[]", sb)
+            else {
+                StringBuilder.append('[', sb);
+                List.forEachWithIndex(index -> item -> {
+                    if (index > 0) StringBuilder.append(',', sb) else ();
+                    writeValue(item, sb)
+                }, items);
+                StringBuilder.append(']', sb)
+            }
+        case Value.Obj(fields) =>
+            if (Map.isEmpty(fields)) StringBuilder.appendString("{}", sb)
+            else {
+                StringBuilder.append('{', sb);
+                Map.forEachWithIndex(index -> key -> item -> {
+                    if (index > 0) StringBuilder.append(',', sb) else ();
+                    writePair(key, item, sb)
+                }, fields);
+                StringBuilder.append('}', sb)
+            }
+    }
+
+    ///
+    /// Writes a string as a JSON string literal, dropping the control characters on the way.
+    ///
+    /// WhyNot: the control characters are not removed by a regular expression first, as they were.
+    /// That ran `\p{Cntrl}` over every string of every line for a case that almost never fires.
+    /// One pass does the dropping and the escaping together.
+    ///
+    /// WhyNot: only backslash and double-quote get an escape. `\b` `\t` `\n` `\f` `\r` and
+    /// `\u00XX` cannot arise here: every character below 0x20 has been dropped by the time it
+    /// would be written, and the JSON encoder leaves everything above it alone too — which is why
+    /// text outside ASCII is written as itself rather than as `\uXXXX`.
+    ///
+    def writeText(text: String, sb: StringBuilder[r]): Unit \ r =
+        let stop = String.length(text);
+        StringBuilder.append('"', sb);
+        if (isPlain(text, 0, stop)) StringBuilder.appendString(text, sb)
+        else writeChars(text, 0, stop, sb);
+        StringBuilder.append('"', sb)
+
+    ///
+    /// Whether `text` can go into the line as it stands.
+    ///
+    /// WhyNot: the characters are not written one at a time regardless. Almost every field is a
+    /// path, a method, an identifier — nothing to escape and nothing to drop — and for those one
+    /// look followed by one bulk append beats a loop that appends a character at a time.
+    ///
+    def isPlain(text: String, at: Int32, stop: Int32): Bool =
+        if (at >= stop) true
+        else {
+            let cp = Char.toBmpCodePoint(String.charAt(at, text));
+            if (cp < 0x20 or cp == 0x7F or cp == 0x5C or cp == 0x22) false
+            else isPlain(text, at + 1, stop)
+        }
+
+    ///
+    /// The characters of `text` from `at` up to `stop`, escaped and stripped.
+    ///
+    /// WhyNot: `StringBuilder.append(c, sb)` is not used for the ordinary characters. It takes its
+    /// argument `with ToString`, so a Char goes to a one-character String first — an allocation per
+    /// character. `appendCodePoint` takes the number this already has in hand.
+    ///
+    def writeChars(text: String, at: Int32, stop: Int32, sb: StringBuilder[r]): Unit \ r =
+        if (at >= stop) ()
+        else {
+            let cp = Char.toBmpCodePoint(String.charAt(at, text));
+            if (cp < 0x20 or cp == 0x7F) ()
+            else if (cp == 0x5C) StringBuilder.appendString("\\\\", sb)
+            else if (cp == 0x22) StringBuilder.appendString("\\\"", sb)
+            else StringBuilder.appendCodePoint(cp, sb);
+            writeChars(text, at + 1, stop, sb)
+        }
+
+    ///
+    /// A float as JSON writes it, or `null` where JSON cannot spell the value.
+    ///
+    /// WhyNot: not written from `floatJson`. That answers a `Json`, and going through it again to
+    /// get the text is the round trip this writer exists to avoid. The two must agree, and
+    /// `testToJsonLineMatchesTheJsonEncoder` is what makes sure they do.
+    ///
+    def floatText(x: Float64): String =
+        if (Float64.isNan(x) or Float64.isInfinite(x)) "null"
+        else BigDecimal.fromString(ToString.toString(x))
+            |> Option.map(BigDecimal.toPlainString)
+            |> Option.getWithDefault("null")
 
     ///
     /// A `Severity` from a configuration string (`LOG_LEVEL`, and so on). Case insensitive.
@@ -431,14 +546,6 @@ mod Logfx {
         case Severity.Warn  => "warn"
         case Severity.Error => "error"
         case Severity.Fatal => "fatal"
-    }
-
-    /// Strips control characters from strings, recursing into lists and objects.
-    def withoutControlChars(value: Value): Value = match value {
-        case Value.Str(text)    => Value.Str(String.replaceMatches(regex = "\\p{Cntrl}", to = "", text))
-        case Value.List(items)  => Value.List(List.map(withoutControlChars, items))
-        case Value.Obj(fields)  => Value.Obj(Map.map(withoutControlChars, fields))
-        case other              => other
     }
 
     ///

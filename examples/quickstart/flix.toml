@@ -7,6 +7,6 @@ authors     = ["ababup1192 <ababup1192@gmail.com>"]
 license     = "Apache-2.0"
 
 [dependencies]
-"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }
+"github:ababup1192/logfx" = { version = "0.3.1", security = "unrestricted" }
 
 [mvn-dependencies]

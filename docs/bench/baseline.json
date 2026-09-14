@@ -1,16 +1,16 @@
 {
-  "recorded": "2026-09-14T09:27:00Z",
+  "recorded": "2026-09-14T10:33:27Z",
   "logfx": "0.3.0",
   "machine": "Darwin arm64",
   "cases": [
-    {"case":"fields.build","ns_median":472,"ns_fastest":466,"iterations":20000,"rounds":7,"what":"Fields.empty() with six values put in"},
-    {"case":"render.json","ns_median":7054,"ns_fastest":6699,"iterations":20000,"rounds":7,"what":"toJsonLine on that record (pure)"},
-    {"case":"render.no.fields","ns_median":2559,"ns_fastest":2525,"iterations":20000,"rounds":7,"what":"toJsonLine on a record with no fields"},
-    {"case":"value.one.string","ns_median":238,"ns_fastest":229,"iterations":20000,"rounds":7,"what":"valueToJsonString on a single string"},
-    {"case":"emit.silent","ns_median":602,"ns_fastest":596,"iterations":20000,"rounds":7,"what":"one line through runWithMin into Sink.silent"},
-    {"case":"emit.json","ns_median":6951,"ns_fastest":6725,"iterations":20000,"rounds":7,"what":"one line through runWithMin into Sink.json"},
-    {"case":"drop.below.min","ns_median":180,"ns_fastest":176,"iterations":20000,"rounds":7,"what":"debugWith below the threshold (never built)"},
-    {"case":"exception.fields","ns_median":7220,"ns_fastest":7014,"iterations":20000,"rounds":7,"what":"Logfx.exception on a caught exception"},
-    {"case":"time.text","ns_median":356,"ns_fastest":350,"iterations":20000,"rounds":7,"what":"epoch millis to ISO 8601"}
+    {"case":"fields.build","ns_median":444,"ns_fastest":390,"iterations":20000,"rounds":7,"what":"Fields.empty() with six values put in"},
+    {"case":"render.json","ns_median":2211,"ns_fastest":1940,"iterations":20000,"rounds":7,"what":"toJsonLine on that record (pure)"},
+    {"case":"render.no.fields","ns_median":748,"ns_fastest":728,"iterations":20000,"rounds":7,"what":"toJsonLine on a record with no fields"},
+    {"case":"value.one.string","ns_median":345,"ns_fastest":286,"iterations":20000,"rounds":7,"what":"valueToJsonString on a single string"},
+    {"case":"emit.silent","ns_median":753,"ns_fastest":670,"iterations":20000,"rounds":7,"what":"one line through runWithMin into Sink.silent"},
+    {"case":"emit.json","ns_median":2684,"ns_fastest":2345,"iterations":20000,"rounds":7,"what":"one line through runWithMin into Sink.json"},
+    {"case":"drop.below.min","ns_median":201,"ns_fastest":174,"iterations":20000,"rounds":7,"what":"debugWith below the threshold (never built)"},
+    {"case":"exception.fields","ns_median":9123,"ns_fastest":7392,"iterations":20000,"rounds":7,"what":"Logfx.exception on a caught exception"},
+    {"case":"time.text","ns_median":354,"ns_fastest":341,"iterations":20000,"rounds":7,"what":"epoch millis to ISO 8601"}
   ]
 }

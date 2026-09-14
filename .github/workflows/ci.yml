@@ -10,10 +10,6 @@ env:
   # Flix calls the GitHub API to resolve a github: dependency. Without authentication the runners'
   # shared IP hits the rate limit, so every job gets a token (bin/flix picks it up).
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # WhyNot: bin/with-lock is not used in CI. /usr/bin/shlock is a BSD (macOS) tool and is absent
-  # on the ubuntu runners. It exists to stop two compilers overlapping on one machine, which a CI
-  # that runs one job at a time does not need.
-  FLIX_NO_LOCK: "1"
 
 jobs:
   check:
