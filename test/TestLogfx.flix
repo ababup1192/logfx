@@ -2,6 +2,7 @@
 /// Log: 1 行 JSON の形（toJsonLine）、Fields のビルダー、span（withFields）、Sink の合成、Java の例外の写し（exception）。
 ///
 mod TestLogfx {
+    import java.lang.ArithmeticException
     import java.lang.IllegalStateException
     import java.lang.RuntimeException
     import java.lang.Throwable
@@ -90,7 +91,7 @@ mod TestLogfx {
     def testFieldsTable(): Unit \ Assert =
         let cases = List#{
             (Fields.empty() |> Fields.str("k", "v"),               List#{("k", Logfx.Value.Str("v"))}),
-            (Fields.empty() |> Fields.int("k", 7i64),              List#{("k", Logfx.Value.Int(7))}),
+            (Fields.empty() |> Fields.int("k", 7i64),              List#{("k", Logfx.Value.Int(7i64))}),
             (Fields.empty() |> Fields.bool("k", false),            List#{("k", Logfx.Value.Bool(false))}),
             (Fields.empty() |> Fields.strs("k", List#{"a", "b"}),  List#{("k", Logfx.Value.List(List#{Logfx.Value.Str("a"), Logfx.Value.Str("b")}))}),
             (Fields.empty() |> Fields.opt("k", None),              Nil),
@@ -107,12 +108,14 @@ mod TestLogfx {
                 |> Fields.merge(Fields.empty() |> Fields.str("a", "other") |> Fields.str("c", "other"))
                 |> Map.toList)
 
-    /// int は Int32 に収まらない値を両端に丸める。
+    /// int は Int32 に収まらない値も丸めずに持ち、JSON にもその桁数で出る（2 GB 超のバイト数・μs の累計）。
     @Test
-    def testFieldsIntClamps(): Unit \ Assert =
+    def testFieldsIntKeepsInt64(): Unit \ Assert =
+        let fields = Fields.empty() |> Fields.int("hi", Int64.maxValue()) |> Fields.int("lo", Int64.minValue());
         Assert.assertEq(
-            expected = List#{("hi", Logfx.Value.Int(Int32.maxValue())), ("lo", Logfx.Value.Int(Int32.minValue()))},
-            Fields.empty() |> Fields.int("hi", Int64.maxValue()) |> Fields.int("lo", Int64.minValue()) |> Map.toList)
+            expected = (List#{("hi", Logfx.Value.Int(Int64.maxValue())), ("lo", Logfx.Value.Int(Int64.minValue()))},
+                        "{\"time\":\"1970-01-01T00:00:00.000Z\",\"severity\":\"info\",\"message\":\"m\",\"n\":3000000000}"),
+            (Map.toList(fields), Logfx.toJsonLine(0i64, recordOf(Severity.Info, "m", Fields.empty() |> Fields.int("n", 3000000000i64)))))
 
     // ---- withFields（span）----
 
@@ -229,6 +232,30 @@ mod TestLogfx {
         });
         Assert.assertEq(expected = 42, result)
 
+    /// tee は両方に同じ行を渡す。first が投げても second には届く。
+    @Test
+    def testSinkTeeReachesBothEvenIfFirstThrows(): Unit \ IO + Assert =
+        let sink = Ref.fresh(Static, Nil);
+        let other = Ref.fresh(Static, Nil);
+        Logfx.runWith(Logfx.Sink.tee(Logfx.Sink.collect(other), Logfx.Sink.collect(sink)), () -> Fields.empty() |> Logfx.info("both"));
+        Logfx.runWith(Logfx.Sink.tee(throwingSink, Logfx.Sink.collect(sink)), () -> Fields.empty() |> Logfx.info("boom"));
+        Assert.assertEq(
+            expected = (List#{(Severity.Info, "both", Nil)},
+                        List#{(Severity.Info, "both", Nil), (Severity.Info, "boom", Nil)}),
+            (collected(other), collected(sink)))
+
+    /// fallback は primary が投げた行だけを secondary に回し、logfx.fallback_reason を付ける。投げなければ secondary は空。
+    @Test
+    def testSinkFallback(): Unit \ IO + Assert =
+        let sink = Ref.fresh(Static, Nil);
+        Logfx.runWith(Logfx.Sink.fallback(throwingSink, Logfx.Sink.collect(sink)), () -> {
+            Fields.empty() |> Logfx.info("ok");
+            Fields.empty() |> Fields.str("k", "v") |> Logfx.info("boom")
+        });
+        Assert.assertEq(
+            expected = List#{(Severity.Info, "boom", List#{("k", Logfx.Value.Str("v")), ("logfx.fallback_reason", Logfx.Value.Str("java.lang.RuntimeException: sink failed"))})},
+            collected(sink))
+
     // ---- enabled（段の判定）----
 
     /// runWithMin は min より軽い段で enabled が false になる（min は残す）。
@@ -290,7 +317,7 @@ mod TestLogfx {
     def exceptionTriple(error: Throwable): (Option[Logfx.Value], Option[Logfx.Value], List[String]) \ IO =
         let fields = Fields.empty() |> Logfx.exception(error);
         (Map.get("exception.type", fields), Map.get("exception.message", fields),
-         Map.get("exception.stacktrace", fields) |> Option.flatMap(Logfx.valueAsStr) |> Option.map(String.splitOn(substr = "\n")) |> Option.getWithDefault(Nil))
+         Map.get("exception.stacktrace", fields) |> Option.flatMap(Logfx.valueAsStr) |> Option.map(String.splitOn(substr = " | ")) |> Option.getWithDefault(Nil))
 
     /// n 段の再帰の底で投げる。Flix の frame が 8 つより多く積まれる。
     def deep(n: Int32): Int32 \ IO =
@@ -323,6 +350,40 @@ mod TestLogfx {
         Assert.assertEq(
             expected = cases |> List.map(match (_, expected) -> Some(Logfx.Value.Str(expected))),
             cases |> List.map(match (error, _) -> Fields.empty() |> Logfx.exception(error) |> Map.get("exception.message")))
+
+    /// cause を "型: message" で 3 段まで辿る。4 段目より奥（本当の一番底）は出ない。
+    @Test
+    def testExceptionCauseChain(): Unit \ IO + Assert =
+        let deepest: Throwable = checked_cast(new ArithmeticException("deepest"));
+        let third: Throwable = checked_cast(new IllegalStateException("c3", deepest));
+        let second: Throwable = checked_cast(new RuntimeException("c2", third));
+        let first: Throwable = checked_cast(new IllegalStateException("c1", second));
+        let outer: Throwable = checked_cast(new RuntimeException("outer", first));
+        Assert.assertEq(
+            expected = Some(Logfx.Value.Str("java.lang.IllegalStateException: c1 <- java.lang.RuntimeException: c2 <- java.lang.IllegalStateException: c3")),
+            Fields.empty() |> Logfx.exception(outer) |> Map.get("exception.cause"))
+
+    /// 1 段だけ包んだ例外（JDBC が SQLException を包む形）でも、本当の理由が出る。
+    @Test
+    def testExceptionCauseOfWrapped(): Unit \ IO + Assert =
+        let cause: Throwable = checked_cast(new ArithmeticException("/ by zero"));
+        Assert.assertEq(
+            expected = Some(Logfx.Value.Str("java.lang.ArithmeticException: / by zero")),
+            Fields.empty() |> Logfx.exception(checked_cast(new RuntimeException("query failed", cause))) |> Map.get("exception.cause"))
+
+    /// cause が無ければ exception.cause は付かない（毎行に空の欄を増やさない）。
+    @Test
+    def testExceptionWithoutCauseHasNoCauseField(): Unit \ IO + Assert =
+        Assert.assertEq(
+            expected = None,
+            Fields.empty() |> Logfx.exception(checked_cast(new RuntimeException("x"))) |> Map.get("exception.cause"))
+
+    /// stacktrace の区切りは制御文字でない（toJsonLine が制御文字を落とすので、改行だと frame が全部繋がる）。
+    @Test
+    def testExceptionStacktraceSurvivesJsonLine(): Unit \ IO + Assert =
+        let fields = Fields.empty() |> Logfx.exception(thrownDeep());
+        let line = Logfx.toJsonLine(0i64, recordOf(Severity.Error, "m", fields));
+        Assert.assertEq(expected = (8, true), (List.length(String.splitOn(substr = " | ", line)), String.contains(substr = "Def$", line)))
 
     /// 既にある fields はそのまま残り、stacktrace のフィールドは必ず付く。
     @Test

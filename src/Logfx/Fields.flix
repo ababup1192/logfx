@@ -11,13 +11,14 @@ mod Logfx.Fields {
         Map.insert(key, Logfx.Value.Str(value), fields)
 
     ///
-    /// 整数を足す。Int32 に収まらない値は両端に丸める。
+    /// 整数を足す。Int64 のまま入る。
     ///
     /// WhyNot: Logfx.Value.Float に写さないのは、JsonValue が Float を BigDecimal 経由で書くので 12 が 12.0 になり、ログ基盤が小数の型で取るため。
-    /// 所要時間（ms）とバイト数は Int32 に収まる。
+    /// WhyNot: Int32 に丸めない。バイト数や μs の累計は 2 GB を越えるので、丸めると 2147483647 が静かに出続け、
+    /// 読む人は値が壊れた事に気づけない。
     ///
     pub def int(key: String, value: Int64, fields: Logfx.Fields): Logfx.Fields =
-        Map.insert(key, Logfx.Value.Int(Int64.clampToInt32(min = Int32.minValue(), max = Int32.maxValue(), value)), fields)
+        Map.insert(key, Logfx.Value.Int(value), fields)
 
     /// 真偽を足す。
     pub def bool(key: String, value: Bool, fields: Logfx.Fields): Logfx.Fields =

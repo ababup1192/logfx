@@ -46,8 +46,12 @@ mod Logfx {
         case Null
         /// true / false
         case Bool(Bool)
-        /// 整数
-        case Int(Int32)
+        /// 整数（Int64）
+        ///
+        /// WhyNot: Int32 にしない。バイト数や μs の累計は 2 GB を越える。越えた値を黙って丸めると、
+        /// 壊れた事が読む人に伝わらないまま 2147483647 が出る（floatJson が NaN を 0 に倒さないのと同じ理由）。
+        ///
+        case Int(Int64)
         /// 小数
         case Float(Float64)
         /// 文字列
@@ -78,7 +82,7 @@ mod Logfx {
     pub def valueToJson(value: Value): Json = match value {
         case Value.Null        => JNull
         case Value.Bool(b)     => JBool(b)
-        case Value.Int(n)      => JNumber(Int32.toBigDecimal(n))
+        case Value.Int(n)      => JNumber(Int64.toBigDecimal(n))
         case Value.Float(x)    => floatJson(x)
         case Value.Str(s)      => JString(s)
         case Value.List(items) => JArray(List.map(valueToJson, items) |> List.toVector)
@@ -193,19 +197,36 @@ mod Logfx {
         logWith(Severity.Fatal, message, build)
 
     ///
-    /// Java の例外を exception.type / exception.message / exception.stacktrace の 3 つに写して fields に足す。
+    /// Java の例外を exception.type / exception.message / exception.cause / exception.stacktrace に写して fields に足す。
     /// message は 200 字で切り、"Detail:" 以降を落とす。null なら空。
-    /// stacktrace は Flix の frame（クラス名に `Def$` か `Clo$` を含む物）だけを 8 つ、改行区切り。
+    /// cause は getCause を 3 段まで辿って "型: message" を " <- " で繋いだ物。cause が無ければ付かない。
+    /// stacktrace は Flix の frame（クラス名に `Def$` か `Clo$` を含む物）だけを 8 つ、" | " 区切り。
     ///
     /// WhyNot: message を丸ごと出さないのは、PG のエラーが Detail: に行の値（鍵やメールアドレス）を入れるため。
     /// WhyNot: frame を全部出さないのは、dev.flix.runtime や JDK の frame は読んでも場所が分からず、DB が落ちた日に 1 行 3 KB が積もるため。
+    /// WhyNot: 一番外の例外だけを見ない。JDBC も HTTP も本当の理由（接続拒否、証明書）を包んで投げるので、
+    /// 外側だけだと「SQLException が出た」しか残らず、原因が 1 行も出ない。
+    /// WhyNot: cause を無制限に辿らない。3 段あれば本当の理由に届き、循環した cause でも止まる。
+    /// WhyNot: 改行で区切らない。toJsonLine が制御文字を落とす（log injection 対策）ので、改行だと frame が全部繋がって 1 語になる。
     ///
     pub def exception(error: Throwable, fields: Fields): Fields \ IO =
         let message: String = error.getMessage();
+        let causes = causeChain(error.getCause(), 3);
         fields
             |> Fields.str("exception.type", error.getClass().getName())
             |> Fields.str("exception.message", if (Object.isNull(message)) "" else shortMessage(message))
-            |> Fields.str("exception.stacktrace", flixFrames(error) |> List.join("\n"))
+            |> Fields.opt("exception.cause", if (List.isEmpty(causes)) None else Some(List.join(" <- ", causes)))
+            |> Fields.str("exception.stacktrace", flixFrames(error) |> List.join(" | "))
+
+    /// getCause の連鎖を budget 段まで "型: message" にする。null で止まる。
+    def causeChain(error: Throwable, budget: Int32): List[String] \ IO =
+        if (budget <= 0 or Object.isNull(error)) Nil
+        else {
+            let message: String = error.getMessage();
+            let text = "${error.getClass().getName()}: ${if (Object.isNull(message)) "" else shortMessage(message)}";
+            let next: Throwable = error.getCause();
+            text :: causeChain(next, budget - 1)
+        }
 
     /// "Detail:" より前を取り、前後の空白を落として 200 字に切る。
     def shortMessage(message: String): String =
@@ -248,7 +269,7 @@ mod Logfx {
     /// スレッドの入口。min より軽い行は enabled が false になり、sink に届かない（min は残す）。
     ///
     /// WhyNot: sink の例外を呼ぶ側に届けないのは、effect の操作の時点で thunk の frame は巻き戻されていて呼ぶ側の catch を素通りし、
-    /// Tx の後始末が飛ぶため。ログの失敗で業務を落とさない。
+    /// Tx の後始末が飛ぶため。ログの失敗で業務を落とさない。代わりに sink が壊れた事を運用者に伝える口は Sink.fallback。
     ///
     /// WhyNot: 段の判定を Sink.minSeverity だけに任せない。sink まで行ってから捨てると、捨てる行でも fields は組み上がっている。
     /// handler で答えれば logWith / infoWith が組み立てごと飛ばせる。
