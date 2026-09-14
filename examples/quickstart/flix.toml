@@ -1,6 +1,6 @@
 [package]
 name        = "quickstart"
-description = "README の最初のコード片、そのままの物"
+description = "The first code block of the README, verbatim"
 version     = "0.0.0"
 flix        = "0.75.3"
 authors     = ["ababup1192 <ababup1192@gmail.com>"]

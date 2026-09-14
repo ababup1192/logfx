@@ -1,6 +1,6 @@
 [package]
 name        = "consumer"
-description = "logfx を取り込めるかだけを見る捨てプロジェクト"
+description = "A throwaway project that only checks that logfx can be pulled in"
 version     = "0.0.0"
 flix        = "@FLIX@"
 authors     = ["ci"]

@@ -1,14 +1,14 @@
 //
-// README の最初のコード片、そのままの物。
+// The first code block of the README, verbatim.
 //
-// WhyNot: README のコードをここに写すのではなく、ここが本体で README が写し。README の
-// コードは誰もコンパイルしないので、先に腐るのは必ず README の方。ci/example.sh がここを
-// 毎回ビルドするので、腐ったら赤くなる。
+// WhyNot: the README is not the source and this a copy of it — it is the other way round.
+// Nobody compiles the code in a README, so the README is always what rots first.
+// ci/example.sh builds this on every run, so a rotten example is a red build.
 //
 import java.lang.System
 
 ///
-/// 利用側のコードが取るのは effect であって logger ではない。どこへ出るかはここで決めない。
+/// Your code takes the effect, not a logger. Who receives the lines is not decided here.
 ///
 def handleRequest(method: String, path: String): Int32 \ Logfx =
     Logfx.Fields.empty()

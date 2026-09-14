@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# flix ラッパ。コンパイラ jar は flix_game_engine の devbox profile から借りる。
-# WhyNot: flix.nix の flix コマンドを直に exec しないのは、それが自分専用の JRE を
-# 同梱していて手元の jdk と別マイナー版になるため。jar だけ借り、JRE は手元に固定する。
+# A flix wrapper. The compiler jar is borrowed from a devbox profile.
+# WhyNot: the flix command from flix.nix is not exec'd directly, because it ships its own JRE at a
+# different minor version than the local jdk. Only the jar is borrowed; the JRE stays the local one.
 ENGINE_ROOT="${FLIX_ENGINE_ROOT:-$HOME/Desktop/flix_game_engine}"
 
-# CI などで jar を直接指す時は FLIX_JAR を環境変数で渡す（release の flix.jar）
+# To point at a jar directly (CI, for one), pass FLIX_JAR in the environment (the release flix.jar)
 FLIX_JAR="${FLIX_JAR:-}"
 if [ -n "$FLIX_JAR" ] && [ ! -f "$FLIX_JAR" ]; then FLIX_JAR=""; fi
 real="$(readlink -f "$ENGINE_ROOT/.devbox/nix/profile/default/bin/flix" 2>/dev/null)"
@@ -18,7 +18,7 @@ if [ -z "$FLIX_JAR" ]; then
 fi
 
 if [ -z "$FLIX_JAR" ]; then
-    echo "flix.jar が見つかりません。$ENGINE_ROOT で devbox の profile を作ってください。" >&2
+    echo "flix.jar not found. Create the devbox profile in $ENGINE_ROOT." >&2
     exit 127
 fi
 
@@ -27,19 +27,18 @@ if ! java -version >/dev/null 2>&1; then
     JAVA_CMD="$ENGINE_ROOT/.devbox/nix/profile/default/bin/java"
 fi
 if ! "$JAVA_CMD" -version >/dev/null 2>&1; then
-    echo "java が見つかりません。PATH に JDK を通してください。" >&2
+    echo "java not found. Put a JDK on the PATH." >&2
     exit 127
 fi
 
-# WhyNot: --Xsubeffecting=lambdas を付けない（nextcms の同じ script は付ける）。
-# 利用側は素の flix で取り込むので、このフラグ込みでしか通らないコードを書くと、
-# 手元では緑のまま、取り込めない版が出る。
-# 純粋なラムダを `\ IO` に渡す所は checked_ecast を書く。
-# WhyNot: GitHub の依存（github:ababup1192/sqlfx）を認証なしで解決しない。CI の runner は
-# IP を共有していて、認証なしの API 制限にすぐ当たり、ビルドが依存の解決で落ちる。
-# WhyNot: コンパイラを 2 つ同時に走らせない。1 回の型検査が 3 GB 使うので、並行作業で
-# 2 本重なると GC で遅くなるか OOM で落ちる。指示で守るのではなくここで順番待ちにする
-# （FLIX_NO_LOCK=1 で外せる）。
+# WhyNot: --Xsubeffecting=lambdas is not passed. The calling side builds with a plain flix, so code
+# that only compiles with this flag ships as a version that is green here and impossible to install.
+# Where a pure lambda goes into a `\ IO` position, write checked_ecast instead.
+# WhyNot: a github: dependency is not resolved unauthenticated. CI runners share IPs and hit the
+# unauthenticated API limit quickly, which fails the build during dependency resolution.
+# WhyNot: two compilers are not run at once. One type check takes 3 GB, so two overlapping runs
+# either crawl in GC or die with an OOM. Rather than relying on people remembering, the queueing
+# happens here (FLIX_NO_LOCK=1 opts out).
 LOCK_CMD=()
 if [ -z "${FLIX_NO_LOCK:-}" ] && [ -x "$(dirname "$0")/with-lock" ]; then
     LOCK_CMD=("$(dirname "$0")/with-lock" compiler)

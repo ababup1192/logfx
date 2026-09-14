@@ -1,36 +1,37 @@
 # examples
 
-logfx を取り込んだ側から書いたコード。どれも `make examples`（`ci/example.sh`）が、
-今のソースから作った `.fpkg` に対してビルドして走らせる。
+Code written from the calling side. `make examples` (`ci/example.sh`) builds every one of them
+against the `.fpkg` produced from the current source, and runs it.
 
 | | |
 |---|---|
-| [`quickstart`](quickstart) | README の最初のコード片そのもの。1 行出すまで |
-| [`server`](server) | サーバへの組み込み。Sink の合成・LOG_LEVEL・span・`Logfx.exception`・リクエストごとの `spawn`、そして `runWithList` によるログのテスト |
+| [`quickstart`](quickstart) | The first code block of the README, verbatim. One line out |
+| [`server`](server) | Wiring into a server: composing sinks, `LOG_LEVEL`, a span, `Logfx.exception`, a `spawn` per request, and testing the lines with `runWithList` |
 
-各 example は `verify.sh` を持っていて、実際に出た行を見る。
+Each example has a `verify.sh` that looks at the lines it actually produced.
 
-## 動かす
+## Running them
 
 ```bash
-make examples          # 全部（.fpkg のビルドから）
+make examples          # all of them, starting from building the .fpkg
 ```
 
-手元で 1 つだけ触るなら、`flix.toml` が指している版（release 済みの版）がそのまま降りてくる:
+To work on one by hand, the version its `flix.toml` names is a released one and resolves on its own:
 
 ```bash
 cd examples/server
 flix run
-LOG_LEVEL=debug flix run    # routing の行が増える
+LOG_LEVEL=debug flix run    # the routing lines appear
 flix test
 ```
 
-## 決まり
+## Rules
 
-- **`examples/*/flix.toml` の logfx の版は、ルートの `flix.toml` の版と一致させる。**
-  ずれていると `ci/example.sh` が止まる。版を上げたら examples も上げる
-- **依存はパスで書かない。** Flix の依存は `github:` しか書けないので、パスに逃がすと
-  利用者が実際に書く物と違う物を確かめる事になる。`ci/example.sh` は `lib/` に
-  今の `.fpkg` を先回りで置いて、宣言はそのままにする
-- 書き方（`mod` の名前、`\ {IO, Logfx}`、テストの形）は
-  [nextcms](../AGENTS.md#出自) に合わせる。logfx の唯一の利用者がそう書いているため
+- **The logfx version in `examples/*/flix.toml` matches the one in the root `flix.toml`.**
+  `ci/example.sh` stops when they differ. Raise the version, raise the examples with it
+- **A dependency is never written as a path.** Flix dependencies can only be `github:`, and
+  escaping to a path would check something other than what a user writes. `ci/example.sh` leaves
+  the declaration alone and puts the current `.fpkg` into `lib/` ahead of the resolver
+- The way these are written — module names, `\ {IO, Logfx}`, the shape of the tests — follows the
+  one project that actually depends on logfx, so that the examples show its house style rather
+  than an invented one

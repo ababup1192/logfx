@@ -1,6 +1,6 @@
 [package]
 name        = "example-server"
-description = "logfx を HTTP サーバに組み込む形の例"
+description = "Wiring logfx into an HTTP server"
 version     = "0.0.0"
 flix        = "0.75.3"
 authors     = ["ababup1192 <ababup1192@gmail.com>"]

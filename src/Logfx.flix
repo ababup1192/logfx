@@ -1,16 +1,13 @@
 //
-// Logfx: 構造化ログ。呼ぶ側は effect（Logfx）で行を出し、出力先は値（Sink）で組む。
-// JDK より外の依存は無く、取り込む側のアプリケーションを何も知らない。
+// Logfx: structured logging. The caller emits a line through an effect (Logfx); where it goes is
+// a value (Sink). Nothing outside the JDK is required, and nothing here knows the application.
 //
-// - 行は Record（severity / message / fields）。1 行 JSON にするのは Sink.json（toJsonLine）
-// - span は withFields（handler の入れ子。内側が勝つ）
-// - スレッドの入口で runWith(sink, thunk)。sink は値なので spawn を跨げる
-// - テストは runWithList
+// - A line is a Record (severity / message / fields). Sink.json renders it (toJsonLine)
+// - A span is withFields (nested handlers; the inner one wins)
+// - runWith(sink, thunk) at the entry of a thread. The sink is a value, so it crosses a spawn
+// - Tests use runWithList
 //
-// WhyNot: ファイル冒頭を /// にしないのは、/// の後に import を置くとコンパイルが落ちるため。
-// WhyNot: /// を日本語で書かない。flix doc が出す物がこのライブラリの公開リファレンスになる。
-// 読者を日本語話者に絞らないために、/// は英語・// の WhyNot は日本語で書く。
-//
+// WhyNot: the head of the file is not ///, because an import after /// fails to compile.
 
 ///
 /// The logging effect. `emit` writes one line; `enabled` asks whether a severity is worth building.
@@ -32,7 +29,7 @@ mod Logfx {
 
     use Util.Json.Json
     use Util.Json.Json.{JNull, JBool, JNumber, JString, JArray, JObject}
-   // 値の型と JSON 化。Logfx.flix と同じモジュールを開く
+   // The value type and its JSON rendering live in this same module
 
 
     ///
@@ -189,7 +186,7 @@ mod Logfx {
     ///
     pub type alias Sink = Record -> Unit \ IO
 
-    // ---- 呼ぶ側 ----
+    // ---- The calling side ----
 
     ///
     /// Emits one line at the given severity. Does nothing when `enabled` answers false.
@@ -325,7 +322,7 @@ mod Logfx {
         if (Object.isNull(path)) ""
         else String.splitOn(substr = "/", path) |> List.last |> Option.getWithDefault(path)
 
-    // ---- span と handler ----
+    // ---- Spans and handlers ----
 
     ///
     /// A scope (span): every line emitted inside the thunk carries the fields. The line's own
@@ -392,7 +389,7 @@ mod Logfx {
             def enabled(_severity, k) = k(true)
         }
 
-    // ---- 1 行 JSON ----
+    // ---- One line of JSON ----
 
     ///
     /// Renders a `Record` as one line of JSON. `time` / `severity` / `message` come first,

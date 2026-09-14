@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# flix doc を走らせて、GitHub Pages に置ける形（build/doc/）にする。
+# Run flix doc and shape the output (build/doc/) so it can be put on GitHub Pages.
 #
-# WhyNot: flix doc の出力をそのまま公開しない。root の index.html は Flix の Prelude の
-# 索引で、logfx のリファレンスを開いた人が最初に見る物としては別のライブラリに見える。
-# 差し替えた上で、元の索引は prelude.html に残す（全ページの "back" が root に来るため）。
+# WhyNot: the output of flix doc is not published as is. The root index.html is the index of the
+# Flix Prelude, and as the first thing someone opening the logfx reference sees, it looks like a
+# different library. It is replaced, and the original index is kept as prelude.html (because the
+# "back" link on every page goes to root).
 #
-# WhyNot: Logfx の 5 ページだけを公開しない。Map[String, Value] のような型のリンクが
-# 標準ライブラリのページを指しているので、消すと型名から先に進めなくなる。
+# WhyNot: not only the 5 Logfx pages are published. Type links such as Map[String, Value] point at
+# standard library pages, so removing them would make it impossible to go on from a type name.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,16 +19,16 @@ bin/flix doc
 
 test -f build/doc/Logfx.html
 
-# Source のリンクを直す。flix doc は自分の標準ライブラリの置き場に、渡された絶対パスを
-# そのまま繋いだ URL を書くので（.../main/src/library//Users/abab/Desktop/logfx/src/...）、
-# そのままだと 404 になる。手元の絶対パスが残る事自体も困る。
+# Fix the Source links. flix doc writes a URL that simply concatenates the absolute path it was
+# given onto the location of its own standard library (.../main/src/library//Users/abab/Desktop/logfx/src/...),
+# so as is it 404s. Leaving a local absolute path in the output is a problem in itself.
 sed -i.bak \
     -e "s|https://github.com/flix/flix/blob/master/main/src/library/$PWD/|https://github.com/ababup1192/logfx/blob/v${version}/|g" \
     build/doc/Logfx*.html
 rm -f build/doc/Logfx*.html.bak
 
 mv build/doc/index.html build/doc/prelude.html
-# prelude.html の中の自分自身へのリンク（"back" と見出し）を直す。
+# Fix the links in prelude.html that point at itself (the "back" link and the heading).
 sed -i.bak "s|href='index.html'|href='prelude.html'|g" build/doc/prelude.html
 rm -f build/doc/prelude.html.bak
 

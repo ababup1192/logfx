@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# 出た行（$1）が、この例で見せたい物になっているか。
+# Checks that the lines that came out ($1) show what this example is here to show.
 set -euo pipefail
 out="$1"
 
-# enrich は全行に付く。
+# enrich reaches every line.
 grep -q '"service.name":"example-server"' "$out"
-# キーの順は time / severity / message が先頭。
+# time / severity / message come first.
 grep -q '^{"time":"[0-9-]*T[0-9:.]*Z","severity":' "$out"
-# span は行に付く。
+# The span is on the line.
 grep -q '"request.id":"r3"' "$out"
-# 落ちた経路は exception の写しが付く。
+# The failing route carries the exception fields.
 grep -q '"exception.type":"java.lang.RuntimeException"' "$out"
 grep -q '"exception.message":"connection refused"' "$out"
-# 既定は Info なので debug の行は出ない。
+# A frame is written file:line, with no absolute path.
+grep -q '"exception.stacktrace":"Handler\.[^"]*(Handler\.flix:[0-9]*)' "$out"
+! grep -q '"exception.stacktrace":"[^"]*(/' "$out"
+# Info is the default, so the debug line stays out.
 ! grep -q '"message":"routing"' "$out"
-# /health は Info の行を出さない。出るのは /posts と /nope の 2 行。
+# /health emits nothing at Info. What comes out is /posts and /nope.
 [ "$(grep -c '^{' "$out")" = "2" ]

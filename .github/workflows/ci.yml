@@ -1,5 +1,5 @@
-# push ごとに型検査とテスト、そして「まっさらなプロジェクトから取り込めるか」を見る。
-# Flix コンパイラは release の jar を取り、bin/flix に FLIX_JAR で渡す。
+# On every push: type check, tests, and whether a blank project can pull the package in.
+# The Flix compiler jar comes from its release and is handed to bin/flix through FLIX_JAR.
 name: ci
 
 on:
@@ -7,12 +7,12 @@ on:
   pull_request:
 
 env:
-  # Flix が github: の依存を解決する時に GitHub の API を叩く。認証が無いと runner の
-  # 共有 IP で制限に当たるので、全 job に token を渡す（bin/flix が拾う）。
+  # Flix calls the GitHub API to resolve a github: dependency. Without authentication the runners'
+  # shared IP hits the rate limit, so every job gets a token (bin/flix picks it up).
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # WhyNot: bin/with-lock を CI で使わない。/usr/bin/shlock は BSD（macOS）の物で
-  # ubuntu の runner には無い。手元でコンパイラを 2 本重ねない為の仕掛けなので、
-  # job が 1 本ずつ走る CI には要らない。
+  # WhyNot: bin/with-lock is not used in CI. /usr/bin/shlock is a BSD (macOS) tool and is absent
+  # on the ubuntu runners. It exists to stop two compilers overlapping on one machine, which a CI
+  # that runs one job at a time does not need.
   FLIX_NO_LOCK: "1"
 
 jobs:
@@ -20,15 +20,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # WhyNot: not folded into a later step. It needs no compiler, so it answers in a second and
+      # says which line to fix before the three-minute type check starts.
+      - name: Wording
+        run: make check-jargon
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-      # WhyNot: 版をこのファイルに書かない。flix.toml の flix = "..." とずれると、
-      # 手元と CI で違うコンパイラを使う事になり、CI の緑が何の保証でもなくなる。
+      # WhyNot: the version is not written in this file. Drifting from flix = "..." in flix.toml
+      # would mean a different compiler locally and in CI, and a green CI would guarantee nothing.
       - id: flix
         run: echo "version=$(sed -n 's/^flix *= *\"\(.*\)\"/\1/p' flix.toml)" >> "$GITHUB_OUTPUT"
-      - name: Flix のコンパイラ
+      - name: The Flix compiler
         run: curl -sSL --fail -o /tmp/flix.jar https://github.com/flix/flix/releases/download/v${{ steps.flix.outputs.version }}/flix.jar
       - run: make check
         env:
@@ -37,8 +41,8 @@ jobs:
         env:
           FLIX_JAR: /tmp/flix.jar
 
-  # 取り込み側から見る。ライブラリが自分のテストに通る事と、パッケージとして
-  # 取り込める事は別物。
+  # Seen from the calling side. Passing its own test suite and being installable as a package
+  # are different things.
   consume:
     runs-on: ubuntu-latest
     steps:
@@ -49,21 +53,21 @@ jobs:
           java-version: "21"
       - id: flix
         run: echo "version=$(sed -n 's/^flix *= *\"\(.*\)\"/\1/p' flix.toml)" >> "$GITHUB_OUTPUT"
-      - name: Flix のコンパイラ
+      - name: The Flix compiler
         run: curl -sSL --fail -o /tmp/flix.jar https://github.com/flix/flix/releases/download/v${{ steps.flix.outputs.version }}/flix.jar
-      - name: 今のソースから作った .fpkg を取り込む
+      - name: Pull in the .fpkg built from the current source
         run: ci/consume.sh local
         env:
           FLIX_JAR: /tmp/flix.jar
-      # WhyNot: examples を consume と別の job にしない。どちらも .fpkg を作る所から始まる
-      # ので、分けると同じビルドを 2 度やるだけになる。
-      - name: examples をビルドして走らせる
+      # WhyNot: examples is not a separate job from consume. Both start by building the .fpkg,
+      # so splitting them would only build the same thing twice.
+      - name: Build and run the examples
         run: make examples
         env:
           FLIX_JAR: /tmp/flix.jar
 
-  # tag を打った後だけ。release に置いた .fpkg を、Flix の依存解決ごと通して確かめる
-  # （local と違い、GitHub から降りてくる物と security の設定が実際に使われる）。
+  # Only after a tag. Checks the .fpkg on the release through Flix's own dependency resolution
+  # (unlike local, what comes down from GitHub and the security setting are actually used).
   consume-release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -76,9 +80,9 @@ jobs:
           java-version: "21"
       - id: flix
         run: echo "version=$(sed -n 's/^flix *= *\"\(.*\)\"/\1/p' flix.toml)" >> "$GITHUB_OUTPUT"
-      - name: Flix のコンパイラ
+      - name: The Flix compiler
         run: curl -sSL --fail -o /tmp/flix.jar https://github.com/flix/flix/releases/download/v${{ steps.flix.outputs.version }}/flix.jar
-      - name: release の .fpkg を取り込む
+      - name: Pull in the .fpkg from the release
         run: ci/consume.sh release
         env:
           FLIX_JAR: /tmp/flix.jar

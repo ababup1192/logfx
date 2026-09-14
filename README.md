@@ -2,9 +2,9 @@
 
 *日本語版はこのページの[下半分](#logfx日本語)にあります。英語版が正。*
 
-Structured logging for [Flix](https://flix.dev). Lines are emitted through a `Logfx` effect;
-where they go is a plain value (`Sink`) you compose and swap. Nothing outside the JDK is
-required — no Maven dependencies.
+**Structured logging for [Flix](https://flix.dev).** A line is emitted through a `Logfx` effect;
+where it goes is a plain value (`Sink`) you compose and swap. Nothing outside the JDK — no Maven
+dependencies, no experimental compiler flags. Built with Flix 0.75.3.
 
 ```flix
 import java.lang.System
@@ -29,53 +29,136 @@ def main(): Unit \ IO =
 {"time":"2026-09-14T07:00:00.000Z","severity":"info","message":"request finished","http.request.method":"GET","http.response.status_code":200,"url.path":"/posts"}
 ```
 
-That whole block is [`examples/quickstart`](examples/quickstart), compiled by `make examples` —
-it is the source, and this README is the copy. A fuller one, with a span, an exception, a `spawn`
-per request and tests, is [`examples/server`](examples/server).
-
-## Install
-
-Add it to `[dependencies]` in your `flix.toml`. There are no Maven dependencies to pull in.
-
-```toml
-[dependencies]
-"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }
-```
-
-It is built with **Flix 0.75.3** and needs no experimental compiler flags.
-
-`security = "unrestricted"` is required because `Logfx.exception` calls into
-`java.lang.Throwable` (class name, message, cause chain, stack frames). The short form
-(`= "0.3.0"`) is rejected by Flix for a package that uses Java interop.
-
-## What you get
-
-The generated API reference is at **<https://ababup1192.github.io/logfx/Logfx.html>**.
-The table below is the map; the reference is the territory.
-
-
 | | |
 |---|---|
-| `Logfx` | The effect. Two operations: `emit` and `enabled` |
-| `Logfx.trace` … `Logfx.fatal` | Emit one line. Fields come last, so they pipe. A line with no fields still passes `Logfx.Fields.empty()` — there is no message-only form |
-| `Logfx.traceWith` … `Logfx.fatalWith` | Same, but the fields are built only if the severity is enabled |
-| `Logfx.Fields` | Field builder: `str` / `int` / `float` / `bool` / `strs` / `obj` / `opt` / `value` / `merge`. `int` takes an `Int64`, so pass an `Int32` through `Int32.toInt64` |
-| `Logfx.withFields` | A scope (span). Every line emitted inside it carries the fields |
-| `Logfx.exception` | `Throwable` → `exception.type` / `.message` / `.cause` / `.stacktrace` |
-| `Logfx.Sink` | `Record -> Unit \ IO`. **A value, so callers supply it.** `json` / `silent` / `collect`, composed with `minSeverity` / `enrich` / `tee` / `fallback` |
-| `Logfx.runWith`, `Logfx.runWithMin` | The production handler. `runWithMin` drops lines below a severity |
-| `Logfx.runWithList` | **The test handler.** Returns the emitted lines as `List[Record]` |
-| `Logfx.Value` | What a field holds. Same shape as JSON, with accessors `valueAsStr` … `valueIsNull` for writing a sink |
-| `Logfx.parseSeverity` | `"warn"` → `Severity.Warn`, for reading a `LOG_LEVEL` out of the environment |
-| `Logfx.toJsonLine` | The line renderer, if you want the JSON without `Sink.json` |
+| Install | `"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }` under `[dependencies]` |
+| API reference | <https://ababup1192.github.io/logfx/Logfx.html> |
+| Runnable examples | [`examples/`](examples) — the block above is [`examples/quickstart`](examples/quickstart), and CI compiles it |
 
-Key names follow the OpenTelemetry semantic conventions (`http.request.method`,
-`http.response.status_code`, `exception.type`, …), so Loki and Grafana can count them as they are.
+`security = "unrestricted"` is required because `Logfx.exception` reads a `java.lang.Throwable`.
+The short form (`= "0.3.0"`) is rejected by Flix for a package that uses Java interop.
+
+## What you can do with it
+
+**Compose the destination in four lines.** A `Sink` is `Record -> Unit \ IO`, and everything that
+wraps one has that same type, so they just nest.
+
+```flix
+Logfx.Sink.minSeverity(Logfx.Severity.Info,
+    Logfx.Sink.enrich(Logfx.Fields.empty() |> Logfx.Fields.str("service.name", "api"),
+        Logfx.Sink.json(clock, line -> println(line))))
+```
+
+Writing to a file, shipping to a collector, buffering in a test — all of that is your code, and it
+is a `def` you pass in. This library does not grow output backends.
+
+**Decide the severity from the fields you already collected.** `emit` takes the severity as a
+value, and the accessors let a caller read its own attributes back.
+
+```flix
+/// A 200 that failed to authenticate is still worth a warning.
+def severityOf(path: String, status: Int32, fields: Logfx.Fields): Logfx.Severity =
+    if (status >= 500) Logfx.Severity.Error
+    else if (status == 401 or status == 403) Logfx.Severity.Warn
+    else if (Map.get("auth.result", fields) |> Option.flatMap(Logfx.valueAsStr) == Some("invalid")) Logfx.Severity.Warn
+    else if (String.endsWith(suffix = "/health", path)) Logfx.Severity.Debug
+    else Logfx.Severity.Info
+```
+
+That last line is how a health check stops filling the dashboard without leaving the logs.
+
+**Attach a span once; every line inside carries it.**
+
+```flix
+run {
+    route(path)                                   // every line in here gets request.id
+} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId))
+```
+
+**Fields are a plain `Map[String, Value]`, so your own merge rule fits.** Two transactions in one
+request should add up, not overwrite each other:
+
+```flix
+def addCounts(incoming: Logfx.Fields, existing: Logfx.Fields): Logfx.Fields =
+    Map.foldLeftWithKey((acc, key, value) -> Map.insert(key, plus(value, Map.get(key, acc)), acc), existing, incoming)
+
+def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = match (existing, incoming) {
+    case (Some(Logfx.Value.Int(before)), Logfx.Value.Int(added)) => Logfx.Value.Int(before + added)
+    case _                                                      => incoming
+}
+```
+
+**Build the expensive fields only if the line is going to exist.** `enabled` is an operation of the
+effect, so the answer comes from the handler before anything is built:
+
+```flix
+Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
+```
+
+`explain(sql)` never runs when the threshold is `Info`. Ask directly with `Logfx.enabled(severity)`
+when the work is bigger than one field.
+
+**Keep the request alive when the sink dies.** `runWith` never lets a failing sink escape into your
+code: at the point the effect operation runs, the caller's frames are already unwound, so a throw
+would sail past the caller's `catch` and skip transaction cleanup. Logging must not take the
+request down with it.
+
+Silence is a problem of its own, so name where a broken sink writes instead:
+
+```flix
+Logfx.Sink.fallback(toCollector, Logfx.Sink.json(clock, line -> System.err.println(line)))
+```
+
+The line reaches `stderr` with `logfx.fallback_reason` added, naming the exception that killed the
+primary. What an operator needs is the line, not a notification about the line.
+
+**Test what you logged, as values.** `runWithList` is pure — no `IO` — and enables every severity,
+so a test never depends on the deployment's threshold.
+
+```flix
+let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
+Assert.assertEq(
+    expected = List#{(Logfx.Severity.Warn, "no route")},
+    lines |> List.map(record -> (record#severity, record#message)))
+```
+
+Assert on the shape of a line, not on its JSON. The key order and the timestamp format are the
+library's business; comparing the rendered string makes a test fail on an upgrade that changed
+nothing you meant to check.
+
+## The names are the contract
+
+Keys follow the [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/)
+(`http.request.method`, `http.response.status_code`, `exception.type`, …). That is not decoration:
+it is what lets a query exist before the incident does.
+
+```logql
+{service="api"} | json | request_id="01J..."                                  # one request, every line
+
+sum(rate({service="api"} | json | message="request" | http_response_status_code >= 500 [5m]))
+  / sum(rate({service="api"} | json | message="request" [5m])) > 0.01         # 5xx rate over 1%
+
+sum(count_over_time({service="api"} | json | severity="error" [5m])) > 3      # errors are arriving
+
+sum(count_over_time({service="api"} | json | __error__ != "" [5m])) > 0       # lines that are NOT json
+```
+
+Two things follow from writing the queries first:
+
+- **One line per request, not three.** The failure belongs in that line's attributes
+  (`exception.type`, an error code), because a log backend cannot join two lines.
+- **Only `service` is a label.** `request.id`, `url.path` and anything else that varies per request
+  goes in the JSON, never in a label — a label per request is an unbounded number of streams.
+
+A key that no query names is a key you are paying to store. That cuts both ways: the field that
+tells you *which* thing failed has to be a scalar, or no alert can compare it.
 
 ## Wiring it into a server
 
-Everything logfx needs decided lives in one place: your entry point. Your own code takes the
-`Logfx` effect and nothing else.
+Everything logfx needs decided lives in one place: your entry point. Your own functions take
+`\ Logfx` and nothing more. `IO` shows up only because the work itself does it — or because you
+called `Logfx.exception`, which reads a `Throwable`. A function that only logs is `\ Logfx` alone,
+and writing `\ Logfx + IO` there is rejected with `Unused effect: 'IO'`.
 
 ```flix
 def main(): Unit \ IO =
@@ -86,7 +169,7 @@ def main(): Unit \ IO =
             let (requestId, method, path) = request;
             spawn {
                 run {
-                    Example.Handler.handle(requestId, method, path)
+                    Handler.handle(requestId, method, path)
                 } with Logfx.runWithMin(min, sink)      // once per thread, at its entry
             } @ rc
         }, incoming())
@@ -99,29 +182,22 @@ def minSeverity(): Logfx.Severity \ IO =
     else Logfx.parseSeverity(text) |> Option.getWithDefault(Logfx.Severity.Info)
 ```
 
-Your own functions take `\ Logfx` and nothing more. `IO` shows up only because the work itself
-does it — or because you called `Logfx.exception`, which reads a `Throwable`. A function that only
-logs is `\ Logfx` alone, and writing `\ Logfx + IO` there is rejected with `Unused effect: 'IO'`.
-
-**`runWith` goes inside the `spawn`, not around it.** `Logfx` is an effect, and an effect
-handler does not cross a thread — performing `Logfx.info` inside a `spawn` that is merely
-nested in a handler fails to compile:
+**`runWith` goes inside the `spawn`, not around it.** `Logfx` is an effect, and an effect handler
+does not cross a thread — performing `Logfx.info` inside a `spawn` that is merely nested in a
+handler fails to compile:
 
 ```
 Unable to unify the effect formulas: 'Logfx' and '(Chan + IO + NonDet) & e0'.
 ```
 
-What crosses the thread is the **sink**, because it is a plain value. Build it once at startup
-and pass it to every thread.
+What crosses the thread is the **sink**, because it is a plain value. Build it once at startup and
+pass it to every thread. It holds no per-request state, so sharing one is the intended use; what is
+per request belongs in a span.
 
-A `Sink` holds no per-request state, so sharing one is the intended use. Anything per request
-belongs in a span instead:
+An unknown word in `LOG_LEVEL` is not fatal here on purpose: a server that refuses to start over a
+typo in the configuration costs more than logging one severity off.
 
-```flix
-run {
-    route(path)
-} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId))
-```
+The whole of that, with a span, an exception and tests, is [`examples/server`](examples/server).
 
 ## Where a field on a line comes from
 
@@ -133,128 +209,71 @@ Three layers can put a field on the same line. The closer to the line, the stron
 | The span | `Logfx.withFields` | beats the sink; an inner span beats an outer one |
 | The sink | `Logfx.Sink.enrich` | weakest — a default for every line |
 
-`time`, `severity` and `message` are not fields: `Sink.json` writes them itself and drops any
-field by those names, because the same key twice leaves it to whoever reads the JSON to decide
-which one survives.
+`time`, `severity` and `message` are not fields: `Sink.json` writes them itself and drops any field
+by those names, because the same key twice leaves it to whoever reads the JSON to decide which one
+survives.
 
-## Filtering, and why there are two ways
+## What logfx trims on the way out
 
-```flix
-// At the handler: `enabled` answers false, so `infoWith` never builds the map.
-run {
-    Logfx.infoWith("expensive", () -> Logfx.Fields.empty() |> Logfx.Fields.str("body", render()))
-} with Logfx.runWithMin(Logfx.Severity.Warn, sink)
-
-// At the sink: the record is built and then dropped. Use this when one branch of a
-// `tee` wants a different threshold than the other.
-run {
-    thunk()
-} with Logfx.runWith(Logfx.Sink.tee(everything, Logfx.Sink.minSeverity(Logfx.Severity.Error, alerts)))
-```
-
-`Logfx.enabled(severity)` is an operation of the effect, so you can ask it directly before
-doing work that only exists for a log line.
-
-## When the sink itself breaks
-
-`runWith` never lets a failing sink escape into your code: at the point the effect operation
-runs, the caller's frames are already unwound, so a throw would sail past the caller's `catch`
-and skip transaction cleanup. Logging must not take the request down with it.
-
-That silence is a problem of its own, so give the broken case somewhere to go:
-
-```flix
-let toStderr = Logfx.Sink.json(clock, line -> System.err.println(line));
-let sink = Logfx.Sink.fallback(loki, toStderr);
-```
-
-The fallback line reaches `stderr` with `logfx.fallback_reason` added, naming the exception that
-killed the primary sink. What the operator needs is the line, not a notification about the line.
-
-`tee` always calls both sinks, then rethrows the first exception. The worst day is the one where
-one sink breaks and silences the other too — so `fallback(tee(a, b), stderr)` sends the line to
-`stderr` when *either* `a` or `b` throws, after both have had it.
-
-## What logfx changes about your values
-
-A line is data that leaves the process, so some of it is trimmed on the way out. Everything here
-is deliberate, and there is no flag to turn it off:
+A line is data that leaves the process, so some of it is cut down. All of it is deliberate, and
+there is no flag to turn it off:
 
 | | |
 |---|---|
 | Every string in the fields | Control characters are stripped. JSON escaping would keep a newline from splitting the line, but a terminal escape sequence passes through and can forge one |
-| `exception.message` | Cut to 200 characters, and everything from `"Detail:"` onwards is dropped — PostgreSQL puts the offending row (a key, an email address) there |
+| `exception.message` | Cut to 200 characters, and everything from `"Detail:"` onwards is dropped — PostgreSQL puts the offending row (a unique key, an email address) there |
 | `exception.cause` | `getCause` is followed 3 links deep. Enough to reach the real reason, and it stops on a cause that cycles |
-| `exception.stacktrace` | The Flix frames only (8 at most), written `class.method(file:line)`. `dev.flix.runtime` and JDK frames do not say where you are; a frame with no line number does not either; and the file is its name, not the absolute path it was compiled from — otherwise the build machine's directory layout rides on every error line, which is the line that multiplies on the day the database falls over |
+| `exception.stacktrace` | The Flix frames only (8 at most), written `class.method(file:line)`. A frame with no line number is dropped, and the file is its name, not the absolute path it was compiled from — otherwise the build machine's directory layout is in every error line, which is the line that multiplies on the day the database falls over |
 | `NaN`, `Infinity` | Written as `null`. JSON cannot spell them, and `0` would hide that a measurement broke |
-| Integers | Kept as `Int64`. A quiet `2147483647` is worse than a number that is obviously missing |
+| Integers | Kept as `Int64`, so pass an `Int32` through `Int32.toInt64`. A quiet `2147483647` is worse than a number that is obviously missing |
 
-## Testing your logs
-
-```flix
-let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
-```
-
-`runWithList` is pure — no `IO` — and enables every severity, so a test never depends on the
-deployment's threshold.
-
-Assert on the shape of a line, not on its JSON. The key order and the timestamp format are the
-library's business; comparing the rendered string makes a test fail on a logfx upgrade that
-changed nothing you meant to check.
-
-```flix
-Assert.assertEq(
-    expected = List#{(Logfx.Severity.Warn, "no route", List#{"request.id", "url.path"})},
-    List.map(record -> (record#severity, record#message, Map.keysOf(record#fields) |> Set.toList), lines))
-```
+A line with no fields still passes `Logfx.Fields.empty()`; there is no message-only form.
 
 ## Design
 
-**The sink is a value.** Writing to a file, shipping to a collector, buffering in a test: all of
-that is caller code. This library does not grow output backends. The combinators (`minSeverity`,
-`enrich`, `tee`, `fallback`) have the same type, so they just compose.
+**The sink is a value.** The combinators (`minSeverity`, `enrich`, `tee`, `fallback`) have the same
+type as what they wrap, so they compose without the library knowing any destination. `tee` always
+calls both sinks and then rethrows the first exception — the worst day is the one where one sink
+breaks and silences the other too.
 
-**`Logfx.Value` is our own.** Borrowing the caller's JSON type inverts the dependency (before this
-was extracted, it borrowed a GraphQL `Value`). And the standard `Util.Json.Json` holds every number
-as one `BigDecimal`, so `12` comes out as `12.0` — a log backend then types the field as a float.
+**`Logfx.Value` is our own.** Borrowing the caller's JSON type inverts the dependency. And the
+standard `Util.Json.Json` holds every number as one `BigDecimal`, so `12` comes out as `12.0` and a
+log backend types the field as a float.
 
 **Nothing sits at the top level except `Logfx`.** Flix cannot hide modules, so a top-level `Log` or
-`Value` would collide with names in the program that depends on it. Everything lives under `Logfx`.
-
-**Broken values stay visibly broken.** `NaN` and `Infinity` become `null` rather than `0`;
-`Fields.int` keeps `Int64` rather than clamping to `Int32`. A number that quietly reads
-`2147483647` is worse than one that is obviously missing.
-
-## When this gets archived
-
-This library was extracted from a headless CMS written in Flix, developed in a private
-repository. If that project stops using logfx, this repository is archived and
-the README says so on the first line. The last released version keeps working — it is a source
-package with no Maven dependencies, pinned to a Flix release. The harm in an unmaintained library is not that it stopped;
-it is not knowing whether it stopped. So: that is the condition, written down in advance.
+`Value` would collide with names in the program that depends on it.
 
 ## Versioning
 
 Semantic versioning, with the `0.x` rule spelled out because Flix has no established convention yet:
 
-- **While the version is `0.x`, a minor bump may break you.** Read the release notes before
-  moving from `0.1` to `0.2`.
+- **While the version is `0.x`, a minor bump may break you.** The
+  [release notes](docs/release-notes) say what moved.
 - **Raising the supported Flix version is at least a minor bump**, never a patch.
 - Patch releases are fixes that keep the API and the emitted JSON as they were.
 
 The effect `Logfx` is `pub`, so anyone can write their own handler. Adding an operation to it breaks
 every hand-written handler, which is why `enabled` landed in 0.2.0 while there were no users at all.
 
+## When this gets archived
+
+This library was extracted from a headless CMS written in Flix, developed in a private repository.
+If that project stops using logfx, this repository is archived and the README says so on the first
+line. The last released version keeps working — it is a source package with no Maven dependencies,
+pinned to a Flix release. The harm in an unmaintained library is not that it stopped; it is not
+knowing whether it stopped. So: that is the condition, written down in advance.
+
 ## Development
 
 ```bash
-make check    # type check
-make test     # tests
-make consume  # build the .fpkg, pull it into a throwaway project, and run it
-make examples # build examples/ against the working tree, run its tests and its output
-make doc      # build the API reference published to GitHub Pages
-make pkg      # build the distributable .fpkg
-make release  # attach .fpkg and flix.toml to a GitHub release
+make check        # type check
+make check-jargon # watch the Japanese prose for words with an agreed replacement
+make test         # tests
+make consume      # build the .fpkg, pull it into a throwaway project, and run it
+make examples     # build examples/ against the working tree, run its tests and its output
+make doc          # build the API reference published to GitHub Pages
+make pkg          # build the distributable .fpkg
+make release      # attach .fpkg and flix.toml to a GitHub release
 ```
 
 The Flix compiler is located by `bin/flix` (pass `FLIX_JAR` to point at a specific jar).
@@ -262,13 +281,12 @@ The Flix compiler is located by `bin/flix` (pass `FLIX_JAR` to point at a specif
 `make consume` is the one that matters before a release: passing your own test suite and being
 installable as a package are different things. 0.1.0 type-checked here and could not be compiled by
 anyone who did not pass `--Xsubeffecting=lambdas`, because `Sink.silent` returned a pure lambda
-where an `IO` one was expected. **logfx requires no experimental compiler flags**; CI runs the same
-script on every push, and again against the GitHub release once a tag is pushed.
+where an `IO` one was expected. CI runs the same script on every push, and again against the GitHub
+release once a tag is pushed.
 
-`make examples` compiles `examples/` against the version being developed, so an example that
-stopped working is a failed build rather than something a reader discovers. The reference is
-published by a tag, never from `main`: a reader must not be looking at an API that no released
-version has.
+`make examples` compiles `examples/` against the version being developed, so an example that stopped
+working is a failed build rather than something a reader discovers. The reference is published by a
+tag, never from `main`: a reader must not be looking at an API that no released version has.
 
 ## License
 
@@ -278,8 +296,8 @@ Apache-2.0
 
 # logfx（日本語）
 
-Flix の構造化ログ。`Logfx` effect で 1 行を出し、出力先（Sink）は値として差し替える。
-JDK より外の依存は無い。
+**Flix の構造化ログ。** `Logfx` effect で 1 行を出し、出力先（Sink）は値として差し替える。
+JDK より外の依存は無く、実験フラグも要らない。Flix 0.75.3 で作っている。
 
 > 上の英語版が正。ずれていたらそちらを見る。
 
@@ -306,52 +324,133 @@ def main(): Unit \ IO =
 {"time":"2026-09-14T07:00:00.000Z","severity":"info","message":"request finished","http.request.method":"GET","http.response.status_code":200,"url.path":"/posts"}
 ```
 
-この塊がそのまま [`examples/quickstart`](examples/quickstart) で、`make examples` がビルドする。
-あちらが本体で、この README が写し。span・exception・リクエストごとの `spawn`・テストまで入った
-版は [`examples/server`](examples/server)。
-
-## 入れる
-
-`flix.toml` の `[dependencies]` に書く。Maven の依存は無いので、利用側で足す物は無い。
-
-```toml
-[dependencies]
-"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }
-```
-
-**Flix 0.75.3** で作っていて、実験フラグは要らない。
-
-`security = "unrestricted"` が要るのは、`Logfx.exception` が `java.lang.Throwable`
-（クラス名・message・cause の連鎖・stack frame）を触るため。版だけを書く短い形
-（`= "0.3.0"`）だと Flix が取り込みを断る。
-
-## 持っている物
-
-生成した API リファレンスは **<https://ababup1192.github.io/logfx/Logfx.html>**。
-下の表は地図で、リファレンスが現地。
-
 | | |
 |---|---|
-| `Logfx` | effect。op は `emit` と `enabled` の 2 つ |
-| `Logfx.trace` … `Logfx.fatal` | 1 行出す。fields は最後（パイプで受ける）。fields の無い行も `Logfx.Fields.empty()` を渡す（message だけの形は無い） |
-| `Logfx.traceWith` … `Logfx.fatalWith` | 同じだが、その段が有効な時だけ fields を組み立てる |
-| `Logfx.Fields` | フィールドのビルダー。`str` / `int` / `float` / `bool` / `strs` / `obj` / `opt` / `value` / `merge`。`int` は `Int64` なので、`Int32` は `Int32.toInt64` で渡す |
-| `Logfx.withFields` | 入れ子の文脈（span）。中で出る行すべてにフィールドが付く |
-| `Logfx.exception` | `Throwable` から `exception.type` / `.message` / `.cause` / `.stacktrace` |
-| `Logfx.Sink` | `Record -> Unit \ IO`。**値なので利用側が差せる**。`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich` / `tee` / `fallback` |
-| `Logfx.runWith`, `Logfx.runWithMin` | 本番の handler。`runWithMin` は段より軽い行を落とす |
-| `Logfx.runWithList` | **テスト用の handler。** 出た行を `List[Record]` で受け取る |
-| `Logfx.Value` | フィールドに入る値。JSON と同じ形。Sink を書く時の `valueAsStr` … `valueIsNull` も付いている |
-| `Logfx.parseSeverity` | `"warn"` → `Severity.Warn`。環境変数の `LOG_LEVEL` を読む用 |
-| `Logfx.toJsonLine` | 行を JSON にする所。`Sink.json` を通さずに文字列だけ欲しい時に |
+| 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }` |
+| API リファレンス | <https://ababup1192.github.io/logfx/Logfx.html> |
+| 動く例 | [`examples/`](examples) — 上の塊がそのまま [`examples/quickstart`](examples/quickstart) で、CI がコンパイルしている |
 
-キーの名前は OpenTelemetry の意味づけ規約（`http.request.method`、
-`http.response.status_code`、`exception.type` …）に合わせてある。Loki や Grafana で
-そのまま数えられる。
+`security = "unrestricted"` が要るのは、`Logfx.exception` が `java.lang.Throwable` を読むため。
+バージョンだけを書く短い形（`= "0.3.0"`）だと Flix が取り込みを断る。
+
+## 何ができるか
+
+**出力先は 4 行で組める。** `Sink` は `Record -> Unit \ IO` で、それを包む物も全部同じ型なので、
+そのまま重なる。
+
+```flix
+Logfx.Sink.minSeverity(Logfx.Severity.Info,
+    Logfx.Sink.enrich(Logfx.Fields.empty() |> Logfx.Fields.str("service.name", "api"),
+        Logfx.Sink.json(clock, line -> println(line))))
+```
+
+ファイルに書く・別の場所へ送る・テストで溜める、はすべて利用側のコードで、渡すのは `def` 1 つ。
+ライブラリ側に出力先を増やさない。
+
+**severity は、既に集めた fields から決められる。** `emit` は severity を値で取り、accessor が
+自分の属性を読み返せる。
+
+```flix
+/// 認証に失敗した 200 は、それでも warn に上げたい。
+def severityOf(path: String, status: Int32, fields: Logfx.Fields): Logfx.Severity =
+    if (status >= 500) Logfx.Severity.Error
+    else if (status == 401 or status == 403) Logfx.Severity.Warn
+    else if (Map.get("auth.result", fields) |> Option.flatMap(Logfx.valueAsStr) == Some("invalid")) Logfx.Severity.Warn
+    else if (String.endsWith(suffix = "/health", path)) Logfx.Severity.Debug
+    else Logfx.Severity.Info
+```
+
+最後の 1 行が、外形監視の行でダッシュボードを埋めずに、ログには残す書き方。
+
+**span は 1 回付ければ、中の行すべてに付く。**
+
+```flix
+run {
+    route(path)                                   // ここで出る行には全部 request.id が付く
+} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId))
+```
+
+**Fields はただの `Map[String, Value]` なので、独自のマージ規則が書ける。** 1 リクエストで
+Tx を 2 回張ったら、上書きではなく足したい:
+
+```flix
+def addCounts(incoming: Logfx.Fields, existing: Logfx.Fields): Logfx.Fields =
+    Map.foldLeftWithKey((acc, key, value) -> Map.insert(key, plus(value, Map.get(key, acc)), acc), existing, incoming)
+
+def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = match (existing, incoming) {
+    case (Some(Logfx.Value.Int(before)), Logfx.Value.Int(added)) => Logfx.Value.Int(before + added)
+    case _                                                      => incoming
+}
+```
+
+**重い fields は、行が本当に出る時だけ組み立てる。** `enabled` は effect の op なので、
+組み立てる前に handler が答える:
+
+```flix
+Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
+```
+
+段が `Info` なら `explain(sql)` は走らない。フィールド 1 つより大きい仕事なら
+`Logfx.enabled(severity)` で直接訊く。
+
+**Sink が壊れてもリクエストは死なない。** `runWith` は sink の例外を呼ぶ側に漏らさない。
+effect の op が走る時点で呼ぶ側の frame は巻き戻っていて、投げても呼ぶ側の `catch` を素通りし、
+Tx の後始末が飛ぶため。ログの失敗で業務を落とさない。
+
+黙って消えるのも困るので、壊れた時の行き先を書く:
+
+```flix
+Logfx.Sink.fallback(toCollector, Logfx.Sink.json(clock, line -> System.err.println(line)))
+```
+
+行は `logfx.fallback_reason`（primary を殺した例外）付きで stderr に出る。運用者が要るのは
+通知ではなく、消えたはずの行そのもの。
+
+**出したログは値としてテストできる。** `runWithList` は純粋（`IO` が付かない）で全段を有効に
+するので、本番の段の設定にテストが引きずられない。
+
+```flix
+let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
+Assert.assertEq(
+    expected = List#{(Logfx.Severity.Warn, "no route")},
+    lines |> List.map(record -> (record#severity, record#message)))
+```
+
+比べるのは行の形であって、JSON の文字列ではない。キーの順と時刻の形はライブラリ側の仕事なので、
+文字列で比べると、意味の変わっていないバージョン上げでテストが落ちる。
+
+## キーの名前が契約
+
+キーは [OpenTelemetry の意味づけ規約](https://opentelemetry.io/docs/specs/semconv/)に合わせてある
+（`http.request.method`、`http.response.status_code`、`exception.type` …）。これは飾りではなく、
+障害が起きる前にクエリを書いておけるかどうかの話。
+
+```logql
+{service="api"} | json | request_id="01J..."                                  # 1 リクエストの行を全部
+
+sum(rate({service="api"} | json | message="request" | http_response_status_code >= 500 [5m]))
+  / sum(rate({service="api"} | json | message="request" [5m])) > 0.01         # 5xx の率が 1% を超えた
+
+sum(count_over_time({service="api"} | json | severity="error" [5m])) > 3      # error が届き始めた
+
+sum(count_over_time({service="api"} | json | __error__ != "" [5m])) > 0       # JSON でない行
+```
+
+クエリを先に書くと、2 つの決めが自然に出てくる:
+
+- **1 リクエスト 1 行。** 失敗の中身（`exception.type`、エラーコード）はその行の属性にする。
+  ログ基盤は 2 つの行を join できない。
+- **ラベルは `service` だけ。** `request.id` や `url.path` のようにリクエストごとに変わる物は
+  JSON に入れ、ラベルにしない。リクエストごとのラベルはストリームを無限に増やす。
+
+どのクエリも名前を呼ばないキーは、置いておくだけで金を払っているキー。逆も言えて、
+「何が失敗したか」を伝えるフィールドはスカラーでないと、アラートが比較できない。
 
 ## サーバに組み込む
 
-logfx について決める事は全部 1 か所（入口）に集まる。利用側のコードが取るのは `Logfx` effect だけ。
+logfx について決める事は全部 1 か所（入口）に集まる。利用側の関数に付く効果は `\ Logfx` だけ。
+`IO` が増えるのは、仕事の方が触るか、`Throwable` を読む `Logfx.exception` を呼んだ時。ログしか
+しない関数は `\ Logfx` のみで、`\ Logfx + IO` と書くと `Unused effect: 'IO'` で断られる。
 
 ```flix
 def main(): Unit \ IO =
@@ -362,7 +461,7 @@ def main(): Unit \ IO =
             let (requestId, method, path) = request;
             spawn {
                 run {
-                    Example.Handler.handle(requestId, method, path)
+                    Handler.handle(requestId, method, path)
                 } with Logfx.runWithMin(min, sink)      // スレッド 1 本につき 1 回、その入口で
             } @ rc
         }, incoming())
@@ -375,26 +474,21 @@ def minSeverity(): Logfx.Severity \ IO =
     else Logfx.parseSeverity(text) |> Option.getWithDefault(Logfx.Severity.Info)
 ```
 
-利用側の関数に付く効果は `\ Logfx` だけ。`IO` が増えるのは、仕事の方が触るか、`Throwable` を読む
-`Logfx.exception` を呼んだ時。ログしかしない関数は `\ Logfx` のみで、`\ Logfx + IO` と書くと
-`Unused effect: 'IO'` で断られる。
-
 **`runWith` は `spawn` の内側に置く。外側ではない。** `Logfx` は effect で、effect の handler は
-スレッドを越えない。handler の中に置いただけの `spawn` の中で `Logfx.info` を呼ぶとコンパイルが落ちる:
+スレッドを越えない。handler の中に置いただけの `spawn` の中で `Logfx.info` を呼ぶとコンパイルが
+落ちる:
 
 ```
 Unable to unify the effect formulas: 'Logfx' and '(Chan + IO + NonDet) & e0'.
 ```
 
-スレッドを越えるのは **Sink** の方。値なので、起動時に 1 本組んで全スレッドに渡す。
+スレッドを越えるのは **Sink** の方。値なので、起動時に 1 本組んで全スレッドに渡す。リクエスト
+ごとの状態を持たないので共有するのが本来の使い方で、リクエストごとの物は span に置く。
 
-`Sink` はリクエストごとの状態を持たないので、共有するのが本来の使い方。リクエストごとの物は span に置く:
+`LOG_LEVEL` の知らない語でわざと落とさないのは、設定の綴り違いでサーバが起動しない方が、
+1 段ずれてログが出る事より高く付くため。
 
-```flix
-run {
-    route(path)
-} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId))
-```
+span・exception・テストまで入った全体が [`examples/server`](examples/server)。
 
 ## 同じ行のフィールドは 3 か所から来る
 
@@ -409,130 +503,77 @@ run {
 `time` / `severity` / `message` はフィールドではない。`Sink.json` が自分で書き、その名前の
 フィールドは捨てる。同じキーが 2 度出ると、どちらが残るかが JSON を読む側任せになるため。
 
-## 段の絞り方が 2 つある理由
-
-```flix
-// handler で絞る。enabled が false を返すので、infoWith は Map を組み立てない。
-run {
-    Logfx.infoWith("expensive", () -> Logfx.Fields.empty() |> Logfx.Fields.str("body", render()))
-} with Logfx.runWithMin(Logfx.Severity.Warn, sink)
-
-// Sink で絞る。Record は組み上がってから捨てられる。tee の片側だけ段を変えたい時に使う。
-run {
-    thunk()
-} with Logfx.runWith(Logfx.Sink.tee(everything, Logfx.Sink.minSeverity(Logfx.Severity.Error, alerts)))
-```
-
-`Logfx.enabled(severity)` は effect の op なので、ログのためだけの計算をする前に直接訊ける。
-
-## sink 自身が壊れた時
-
-`runWith` は sink の例外を呼ぶ側に漏らさない。effect の op が走る時点で呼ぶ側の frame は
-巻き戻っていて、投げても呼ぶ側の `catch` を素通りし、Tx の後始末が飛ぶため。ログの失敗で
-業務を落とさない。
-
-ただし黙って消えるのも困るので、壊れた時の行き先を書く:
-
-```flix
-let toStderr = Logfx.Sink.json(clock, line -> System.err.println(line));
-let sink = Logfx.Sink.fallback(loki, toStderr);
-```
-
-行は `logfx.fallback_reason`（primary を殺した例外）付きで stderr に出る。運用者が要るのは
-通知ではなく、消えたはずの行そのもの。
-
-`tee` は必ず両方に渡してから、最初の例外を投げ直す。片方が壊れた日にもう片方まで黙るのが
-一番困るため。なので `fallback(tee(a, b), stderr)` は、`a` と `b` の**どちらか**が投げた時に、
-両方に渡し終えてから行を stderr に出す。
-
-## logfx が値に手を入れる所
+## logfx が出る途中で削る物
 
 行はプロセスの外に出るデータなので、出る途中で削る物がある。全部わざとで、外す設定は無い。
 
 | | |
 |---|---|
 | fields の全文字列 | 制御文字を落とす。JSON の escape でも改行で行は割れないが、端末のエスケープシーケンスは通り、偽の行を作れる |
-| `exception.message` | 200 字で切り、`"Detail:"` 以降を落とす。PostgreSQL がそこに行の値（鍵・メールアドレス）を入れるため |
+| `exception.message` | 200 字で切り、`"Detail:"` 以降を落とす。PostgreSQL がそこに行の値（一意キー・メールアドレス）を入れるため |
 | `exception.cause` | `getCause` を 3 段まで。本当の理由に届く深さで、循環した cause でも止まる |
-| `exception.stacktrace` | Flix の frame だけ 8 つ。形は `クラス.メソッド(ファイル名:行)`。`dev.flix.runtime` や JDK の frame は場所を教えず、行番号の無い frame も同じ。ファイルは名前だけで、コンパイル時の絶対パスは出さない（ビルドマシンのディレクトリ構成が全エラー行に乗る。DB が落ちた日に一番増えるのがその行） |
+| `exception.stacktrace` | Flix の frame だけ 8 つ。形は `クラス.メソッド(ファイル名:行)`。行番号の無い frame は捨てる。ファイルは名前だけで、コンパイル時の絶対パスは出さない（ビルドマシンのディレクトリ構成が全エラー行に入る。DB が落ちた日に一番増えるのがその行） |
 | `NaN` / 無限大 | `null` で出す。JSON に書き方が無く、`0` にすると計測が壊れた事が消える |
-| 整数 | `Int64` のまま。静かに読める `2147483647` の方が、明らかに欠けている数より悪い |
+| 整数 | `Int64` のまま。`Int32` は `Int32.toInt64` で渡す。静かに読める `2147483647` の方が、明らかに欠けている数より悪い |
 
-## ログをテストする
-
-```flix
-let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
-```
-
-`runWithList` は純粋（`IO` が付かない）で、全段を有効にする。本番の段の設定にテストが
-引きずられない。
-
-比べるのは行の形であって、JSON の文字列ではない。キーの順と時刻の形はライブラリ側の仕事なので、
-文字列で比べると、意味の変わっていない版上げでテストが落ちる。
-
-```flix
-Assert.assertEq(
-    expected = List#{(Logfx.Severity.Warn, "no route", List#{"request.id", "url.path"})},
-    List.map(record -> (record#severity, record#message, Map.keysOf(record#fields) |> Set.toList), lines))
-```
+fields の無い行も `Logfx.Fields.empty()` を渡す。message だけの形は無い。
 
 ## 設計
 
-**Sink は値。** ファイルに書く・別の場所へ送る・テストで溜める、はすべて利用側で書ける。
-ライブラリ側に出力先を増やさない。重ねる物（`minSeverity` / `enrich` / `tee` / `fallback`）は
-同じ型なので、そのまま繋がる。
+**Sink は値。** 重ねる物（`minSeverity` / `enrich` / `tee` / `fallback`）は包む相手と同じ型なので、
+ライブラリが出力先を 1 つも知らないまま繋がる。`tee` は必ず両方に渡してから最初の例外を投げ直す。
+片方が壊れた日にもう片方まで黙るのが一番困るため。
 
-**`Logfx.Value` を自前で持つ。** 利用側の JSON の型を借りると依存の向きが逆になり、切り出せなく
-なる（実際、切り出す前は GraphQL の `Value` を借りていた）。もう 1 つは、標準の `Util.Json.Json` は
-数を `BigDecimal` 1 つで持つので整数と小数を区別できず、`12` が `12.0` として出てしまう。
+**`Logfx.Value` を自前で持つ。** 利用側の JSON の型を借りると依存の向きが逆になる。もう 1 つは、
+標準の `Util.Json.Json` は数を `BigDecimal` 1 つで持つので、`12` が `12.0` として出て、ログ基盤が
+小数の型で取ってしまう。
 
 **トップレベルに一般名を置かない。** Flix はモジュールを隠せないので、`Log` や `Value` を
-トップレベルに置くと利用側と衝突する。すべて `Logfx` の下にある。
+トップレベルに置くと利用側と衝突する。
 
-**壊れた値は壊れたまま見せる。** `NaN` と `Infinity` は `0` ではなく `null`。`Fields.int` は
-`Int32` に丸めずに `Int64` のまま持つ。静かに `2147483647` と読める数の方が、欠けている数より悪い。
-
-## アーカイブする条件
-
-これは非公開のリポジトリで作っている Flix 製のヘッドレス CMS から切り出した物。
-そのプロジェクトが logfx を使わなくなったら、このリポジトリは
-アーカイブして README の 1 行目にそう書く。その時点の版はそのまま動く（Maven 依存の無い
-ソースのパッケージで、Flix の release に固定されている）。放置されたライブラリの害は「止まっていること」より「止まって
-いるか分からないこと」なので、条件を先に書いておく。
-
-## 版の付け方
+## バージョンの付け方
 
 semver。Flix にはまだ慣行が無いので `0.x` の規則を明文化する:
 
-- **`0.x` の間は minor で壊す事がある。** `0.1` から `0.2` に上げる前に release note を読む。
-- **対応する Flix の版を上げる時は必ず minor 以上。** patch にはしない。
+- **`0.x` の間は minor で壊す事がある。** 何が動いたかは
+  [release note](docs/release-notes) に書く。
+- **対応する Flix のバージョンを上げる時は必ず minor 以上。** patch にはしない。
 - patch は API と出る JSON を変えない修正だけ。
 
 `Logfx` は `pub` な effect なので、handler は誰でも書ける。op を足すと自前の handler を書いた
 利用者が全員壊れる。だから `enabled` は、利用者が 0 人の 0.2.0 で入れた。
 
+## アーカイブする条件
+
+これは非公開のリポジトリで作っている Flix 製のヘッドレス CMS から切り出した物。そのプロジェクトが
+logfx を使わなくなったら、このリポジトリはアーカイブして README の 1 行目にそう書く。その時点の
+バージョンはそのまま動く（Maven 依存の無いソースのパッケージで、Flix の release に固定されている）。
+放置されたライブラリの害は「止まっていること」より「止まっているか分からないこと」なので、
+条件を先に書いておく。
+
 ## 開発
 
 ```bash
-make check    # 型検査
-make test     # テスト
-make consume  # .fpkg を作り、捨てプロジェクトから取り込んで動かす
-make examples # examples/ を今のソースに対してビルドし、テストと出力を確かめる
-make doc      # GitHub Pages に出す API リファレンス
-make pkg      # 配布用の .fpkg
-make release  # GitHub の release に .fpkg と flix.toml を付ける
+make check        # 型検査
+make check-jargon # 日本語に、言い換え先のある語が残っていないか
+make test         # テスト
+make consume      # .fpkg を作り、捨てプロジェクトから取り込んで動かす
+make examples     # examples/ を今のソースに対してビルドし、テストと出力を確かめる
+make doc          # GitHub Pages に出す API リファレンス
+make pkg          # 配布用の .fpkg
+make release      # GitHub の release に .fpkg と flix.toml を付ける
 ```
+
+Flix コンパイラは `bin/flix` が解決する（`FLIX_JAR` を渡せばそれを使う）。
 
 release の前に効くのは `make consume`。自分のテストに通る事と、パッケージとして取り込める事は
 別物で、0.1.0 は手元では緑のまま、`--Xsubeffecting=lambdas` を付けない人にはコンパイルできなかった
-（`Sink.silent` が純粋なラムダを `IO` の所に返していた）。**logfx は実験フラグを要求しない。**
-CI は push ごとに同じ script を回し、tag を打った後は GitHub の release からも取り込んで確かめる。
+（`Sink.silent` が純粋なラムダを `IO` の所に返していた）。CI は push ごとに同じ script を回し、
+tag を打った後は GitHub の release からも取り込んで確かめる。
 
-`make examples` は `examples/` を開発中の版に対してコンパイルする。動かなくなった例が
+`make examples` は `examples/` を開発中のバージョンに対してコンパイルする。動かなくなった例が
 「読んだ人が気づく物」ではなく「ビルドの失敗」になる。リファレンスは tag からだけ公開する。
 どの release にも無い API を読んでいる、という状態を読む側から見分けられないため。
-
-Flix コンパイラは `bin/flix` が解決する（`FLIX_JAR` を渡せばそれを使う）。
 
 ## ライセンス
 

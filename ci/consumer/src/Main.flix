@@ -1,19 +1,20 @@
 //
-// まっさらなプロジェクトから見た logfx。取り込んだ版が実際に動く事だけを見る。
-// 時刻は固定（出力を 1 行ずつ比べるため）。
+// logfx as seen from a brand-new project. This only checks that the consumed version actually runs.
+// The time is fixed (so the output can be compared line by line).
 //
-// WhyNot: logfx のテストをここで焼き直さない。ここで見たいのは「パッケージとして取り込めるか」
-// （security の設定、実験フラグ無しで通るか、公開している名前が外から見えるか）だけ。
+// WhyNot: the logfx tests are not redone here. All that matters here is "can it be consumed as a
+// package" (the security setting, whether it compiles without experimental flags, whether the
+// published names are visible from outside).
 //
 
 import java.lang.ArithmeticException
 import java.lang.RuntimeException
 import java.lang.Throwable
 
-/// いつも同じ時刻（2025-09-08T02:53:20.123Z）。
+/// Always the same time (2025-09-08T02:53:20.123Z).
 def clock(): Int64 \ IO = checked_ecast(1757300000123i64)
 
-/// 必ず投げる sink。fallback の primary に使う。
+/// A sink that always throws. Used as the primary of fallback.
 def brokenSink(_record: Logfx.Record): Unit \ IO = throw new RuntimeException("sink is down")
 
 def main(): Unit \ IO =
@@ -37,6 +38,6 @@ def main(): Unit \ IO =
                 |> Logfx.error("insert failed")
         })
     });
-    // 壊れた sink の行が secondary に落ちて、理由が付く。
+    // The line from the broken sink falls through to secondary and gets a reason attached.
     Logfx.runWith(Logfx.Sink.fallback(brokenSink, Logfx.Sink.tee(Logfx.Sink.silent(), sink)), () ->
         Logfx.Fields.empty() |> Logfx.warn("primary is down"))

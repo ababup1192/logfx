@@ -1,5 +1,5 @@
 ///
-/// Log: 1 行 JSON の形（toJsonLine）、Fields のビルダー、span（withFields）、Sink の合成、Java の例外の写し（exception）。
+/// Log: the shape of a one-line JSON record (toJsonLine), the Fields builder, spans (withFields), Sink composition, and the copy of a Java exception (exception).
 ///
 mod TestLogfx {
     import java.lang.ArithmeticException
@@ -12,20 +12,20 @@ mod TestLogfx {
     use Logfx.Fields
 
     ///
-    /// 比べやすいように Record を (severity, message, fields の一覧) にする。
+    /// Turn a Record into (severity, message, list of fields) so it is easy to compare.
     ///
     def toTuple(record: Logfx.Record): (Severity, String, List[(String, Logfx.Value)]) =
         (record#severity, record#message, Map.toList(record#fields))
 
     ///
-    /// severity と message と fields から Record を作る。
+    /// Build a Record from severity, message and fields.
     ///
     def recordOf(severity: Severity, message: String, fields: Fields): Logfx.Record =
         { severity = severity, message = message, fields = fields }
 
     // ---- toJsonLine ----
 
-    /// キーの順は time / severity / message が先頭で、残りは名前順。severity は小文字。数・真偽・一覧はその型のまま出る。
+    /// Key order puts time / severity / message first and sorts the rest by name; severity is lowercase; numbers, booleans and lists keep their own type.
     @Test
     def testToJsonLineTable(): Unit \ Assert =
         let cases = List#{
@@ -44,28 +44,28 @@ mod TestLogfx {
         };
         Assert.assertEq(expected = cases |> List.map(snd), cases |> List.map(match ((time, record), _) -> Logfx.toJsonLine(time, record)))
 
-    /// 制御文字（改行・エスケープシーケンス）は message からも文字列のフィールドからも一覧の中からも落ちる（log injection を防ぐ）。
+    /// Control characters (newlines, escape sequences) are dropped from the message, from string fields and from inside lists (prevents log injection).
     @Test
     def testToJsonLineDropsControlChars(): Unit \ Assert =
         Assert.assertEq(
             expected = "{\"time\":\"1970-01-01T00:00:00.000Z\",\"severity\":\"info\",\"message\":\"ab[31m\",\"l\":[\"x\"],\"p\":\"/health{\\\"fake\\\":1}\"}",
             Logfx.toJsonLine(0i64, recordOf(Severity.Info, "a\nb[31m", Fields.empty() |> Fields.str("p", "/health\n{\"fake\":1}\r") |> Fields.strs("l", List#{"x\t"}))))
 
-    /// 同じ key を 2 回付けると後の値が勝つ。
+    /// Setting the same key twice keeps the later value.
     @Test
     def testToJsonLineLastKeyWins(): Unit \ Assert =
         Assert.assertEq(
             expected = "{\"time\":\"1970-01-01T00:00:00.000Z\",\"severity\":\"info\",\"message\":\"m\",\"k\":\"2\"}",
             Logfx.toJsonLine(0i64, recordOf(Severity.Info, "m", Fields.empty() |> Fields.str("k", "1") |> Fields.str("k", "2"))))
 
-    /// fields に time / severity / message があっても先頭の 3 つが勝ち、2 度は出ない。
+    /// Even if fields contain time / severity / message, the leading three win and are not emitted twice.
     @Test
     def testToJsonLineHeaderKeysWin(): Unit \ Assert =
         Assert.assertEq(
             expected = "{\"time\":\"1970-01-01T00:00:00.000Z\",\"severity\":\"info\",\"message\":\"m\"}",
             Logfx.toJsonLine(0i64, recordOf(Severity.Info, "m", Fields.empty() |> Fields.str("time", "x") |> Fields.str("severity", "y") |> Fields.str("message", "z"))))
 
-    /// time は ISO 8601 の UTC で ms 固定。0 でも .000Z、うるう日、9999 年、負の時刻（1970 年より前）も出る。
+    /// time is ISO 8601 UTC with fixed ms: .000Z even for 0, and leap days, year 9999 and negative times (before 1970) all render.
     @Test
     def testToJsonLineTimeTable(): Unit \ Assert =
         let cases = List#{
@@ -77,7 +77,7 @@ mod TestLogfx {
         };
         Assert.assertEq(expected = cases |> List.map(snd), cases |> List.map(match (time, _) -> Logfx.timeText(time)))
 
-    /// Float の NaN と Infinity は JSON に書けないので null。
+    /// Float NaN and Infinity cannot be written in JSON, so they become null.
     @Test
     def testToJsonLineNonFiniteIsNull(): Unit \ Assert =
         Assert.assertEq(
@@ -86,7 +86,7 @@ mod TestLogfx {
 
     // ---- Fields ----
 
-    /// str / int / bool / strs はその型の Logfx.Value になり、opt の None は付かず、Some は str と同じ。
+    /// str / int / bool / strs produce the Logfx.Value of that type; opt with None adds nothing, and Some is the same as str.
     @Test
     def testFieldsTable(): Unit \ Assert =
         let cases = List#{
@@ -99,7 +99,7 @@ mod TestLogfx {
         };
         Assert.assertEq(expected = cases |> List.map(snd), cases |> List.map(match (fields, _) -> Map.toList(fields)))
 
-    /// merge は other が勝つ（同じ key は other の値、無い key は両方残る）。
+    /// merge lets other win (same key takes other's value, keys present on only one side are both kept).
     @Test
     def testFieldsMergeOtherWins(): Unit \ Assert =
         Assert.assertEq(
@@ -108,7 +108,7 @@ mod TestLogfx {
                 |> Fields.merge(Fields.empty() |> Fields.str("a", "other") |> Fields.str("c", "other"))
                 |> Map.toList)
 
-    /// int は Int32 に収まらない値も丸めずに持ち、JSON にもその桁数で出る（2 GB 超のバイト数・μs の累計）。
+    /// int holds values that do not fit in Int32 without rounding, and JSON keeps those digits (byte counts over 2 GB, microsecond totals).
     @Test
     def testFieldsIntKeepsInt64(): Unit \ Assert =
         let fields = Fields.empty() |> Fields.int("hi", Int64.maxValue()) |> Fields.int("lo", Int64.minValue());
@@ -117,7 +117,7 @@ mod TestLogfx {
                         "{\"time\":\"1970-01-01T00:00:00.000Z\",\"severity\":\"info\",\"message\":\"m\",\"n\":3000000000}"),
             (Map.toList(fields), Logfx.toJsonLine(0i64, recordOf(Severity.Info, "m", Fields.empty() |> Fields.int("n", 3000000000i64)))))
 
-    /// float / obj / value はその形の Logfx.Value になる（value は Null も入れられる）。
+    /// float / obj / value produce the Logfx.Value of that shape (value can also hold Null).
     @Test
     def testFieldsCoversEveryValue(): Unit \ Assert =
         let cases = List#{
@@ -127,7 +127,7 @@ mod TestLogfx {
         };
         Assert.assertEq(expected = cases |> List.map(snd), cases |> List.map(match (fields, _) -> Map.toList(fields)))
 
-    /// valueAs* は自分の case だけを取り出し、他の case では None。valueIsNull は Null にだけ true。
+    /// valueAs* extracts only its own case and gives None for other cases; valueIsNull is true only for Null.
     @Test
     def testValueAccessors(): Unit \ Assert =
         let str = Logfx.Value.Str("s");
@@ -139,9 +139,9 @@ mod TestLogfx {
              Logfx.valueAsList(Logfx.Value.List(List#{str})), Logfx.valueAsObj(Logfx.Value.Obj(Map#{"a" => str})),
              (Logfx.valueIsNull(Logfx.Value.Null), Logfx.valueIsNull(str))))
 
-    // ---- withFields（span）----
+    // ---- withFields (span) ----
 
-    /// 外の fields は中の全行に付く。severity は呼んだ関数の物。
+    /// The outer fields are attached to every line inside; severity is that of the function called.
     @Test
     def testWithFieldsAttachesToAllInnerLines(): Unit \ Assert =
         let span = Fields.empty() |> Fields.str("request.id", "r1");
@@ -155,7 +155,7 @@ mod TestLogfx {
                 (Severity.Warn, "two", List#{("k", Logfx.Value.Str("v")), ("request.id", Logfx.Value.Str("r1"))})},
             records |> List.map(toTuple))
 
-    /// 同じ key は内側（行に近い方）が勝つ。span の入れ子も内側が勝つ。
+    /// For the same key the inner one (closer to the line) wins; nested spans also let the inner one win.
     @Test
     def testWithFieldsInnerWins(): Unit \ Assert =
         let outer = Fields.empty() |> Fields.str("k", "outer") |> Fields.str("o", "1");
@@ -170,7 +170,7 @@ mod TestLogfx {
                 (Severity.Info, "line", List#{("k", Logfx.Value.Str("line")), ("o", Logfx.Value.Str("1"))})},
             records |> List.map(toTuple))
 
-    /// thunk を抜けた後の行には付かない。thunk の結果はそのまま返る。
+    /// Lines after the thunk returns get nothing attached; the thunk's result is returned as is.
     @Test
     def testWithFieldsEndsWithThunk(): Unit \ Assert =
         let span = Fields.empty() |> Fields.str("s", "1");
@@ -183,7 +183,7 @@ mod TestLogfx {
             expected = (42, List#{(Severity.Info, "in", List#{("s", Logfx.Value.Str("1"))}), (Severity.Info, "out", Nil)}),
             (result, records |> List.map(toTuple)))
 
-    /// runWithList を withFields の内側に置くと fields は付かない（内側の handler が先に行を取るため。順序を間違えた時の症状）。
+    /// Putting runWithList inside withFields attaches no fields (the inner handler takes the line first; this is the symptom of getting the order wrong).
     @Test
     def testWithFieldsOutsideOfRunDoesNotAttach(): Unit \ Assert =
         let span = Fields.empty() |> Fields.str("s", "1");
@@ -192,13 +192,13 @@ mod TestLogfx {
             expected = (List#{(Severity.Info, "x", Nil)}, Nil),
             (innerRecords |> List.map(toTuple), outerRecords |> List.map(toTuple)))
 
-    // ---- Sink の合成 ----
+    // ---- Sink composition ----
 
-    /// 集めた行を古い順にする。
+    /// Put the collected lines in oldest-first order.
     def collected(sink: Ref[List[Logfx.Record], Static]): List[(Severity, String, List[(String, Logfx.Value)])] \ IO =
         Ref.get(sink) |> List.reverse |> List.map(toTuple)
 
-    /// 全 severity を 1 行ずつ出す。
+    /// Emit one line for every severity.
     def emitAll(): Unit \ Logfx =
         Fields.empty() |> Logfx.trace("t");
         Fields.empty() |> Logfx.debug("d");
@@ -207,14 +207,14 @@ mod TestLogfx {
         Fields.empty() |> Logfx.error("e");
         Fields.empty() |> Logfx.fatal("f")
 
-    /// minSeverity は境界を含む（Warn なら Warn / Error / Fatal が残る）。
+    /// minSeverity includes the boundary (Warn keeps Warn / Error / Fatal).
     @Test
     def testSinkMinSeverity(): Unit \ IO + Assert =
         let sink = Ref.fresh(Static, Nil);
         Logfx.runWith(Logfx.Sink.minSeverity(Severity.Warn, Logfx.Sink.collect(sink)), () -> emitAll());
         Assert.assertEq(expected = List#{(Severity.Warn, "w", Nil), (Severity.Error, "e", Nil), (Severity.Fatal, "f", Nil)}, collected(sink))
 
-    /// enrich の fields と span の fields は同じ 1 行に付く。行の fields が一番強く、次に span、enrich は一番弱い。
+    /// The enrich fields and the span fields land on the same line; the line's own fields are strongest, then the span, and enrich is weakest.
     @Test
     def testSinkEnrichAndSpanOnOneLine(): Unit \ IO + Assert =
         let sink = Ref.fresh(Static, Nil);
@@ -231,7 +231,7 @@ mod TestLogfx {
                 (Severity.Info, "line",  List#{("k", Logfx.Value.Str("line")), ("request.id", Logfx.Value.Str("r1")), ("service", Logfx.Value.Str("cms"))})},
             collected(sink))
 
-    /// json は clock の時刻で toJsonLine の 1 行を out に渡す。
+    /// json passes one toJsonLine line, timestamped by clock, to out.
     @Test
     def testSinkJson(): Unit \ IO + Assert =
         let lines = Ref.fresh(Static, Nil);
@@ -240,11 +240,11 @@ mod TestLogfx {
             expected = List#{"{\"time\":\"2025-09-08T02:53:20.123Z\",\"severity\":\"info\",\"message\":\"m\",\"k\":\"v\"}"},
             Ref.get(lines))
 
-    /// 「boom」の行で例外を投げる sink。
+    /// A sink that throws on the "boom" line.
     def throwingSink(record: Logfx.Record): Unit \ IO =
         if (record#message == "boom") throw new RuntimeException("sink failed") else ()
 
-    /// sink が投げても runWith が捨てるので、thunk は最後まで走って結果が返る。
+    /// runWith discards a throwing sink, so the thunk runs to the end and returns its result.
     @Test
     def testRunWithSwallowsSinkFailure(): Unit \ IO + Assert =
         let result = Logfx.runWith(throwingSink, () -> {
@@ -254,7 +254,7 @@ mod TestLogfx {
         });
         Assert.assertEq(expected = 42, result)
 
-    /// tee は両方に同じ行を渡す。first が投げても second には届く。
+    /// tee passes the same line to both; even if first throws, second still receives it.
     @Test
     def testSinkTeeReachesBothEvenIfFirstThrows(): Unit \ IO + Assert =
         let sink = Ref.fresh(Static, Nil);
@@ -266,7 +266,7 @@ mod TestLogfx {
                         List#{(Severity.Info, "both", Nil), (Severity.Info, "boom", Nil)}),
             (collected(other), collected(sink)))
 
-    /// fallback は primary が投げた行だけを secondary に回し、logfx.fallback_reason を付ける。投げなければ secondary は空。
+    /// fallback sends only the lines primary threw on to secondary and adds logfx.fallback_reason; if nothing throws, secondary stays empty.
     @Test
     def testSinkFallback(): Unit \ IO + Assert =
         let sink = Ref.fresh(Static, Nil);
@@ -278,9 +278,9 @@ mod TestLogfx {
             expected = List#{(Severity.Info, "boom", List#{("k", Logfx.Value.Str("v")), ("logfx.fallback_reason", Logfx.Value.Str("java.lang.RuntimeException: sink failed"))})},
             collected(sink))
 
-    // ---- enabled（段の判定）----
+    // ---- enabled (severity check) ----
 
-    /// runWithMin は min より軽い段で enabled が false になる（min は残す）。
+    /// runWithMin makes enabled false for severities lighter than min (min itself is kept).
     @Test
     def testRunWithMinAnswersEnabled(): Unit \ IO + Assert =
         let answers = Logfx.runWith(Logfx.Sink.silent(), () ->
@@ -289,14 +289,14 @@ mod TestLogfx {
             (Logfx.enabled(Severity.Debug), Logfx.enabled(Severity.Warn), Logfx.enabled(Severity.Error)));
         Assert.assertEq(expected = ((true, true), (false, true, true)), (answers, limited))
 
-    /// runWithMin で落ちる段は sink に届かない。
+    /// Severities dropped by runWithMin never reach the sink.
     @Test
     def testRunWithMinDropsLightLines(): Unit \ IO + Assert =
         let sink = Ref.fresh(Static, Nil);
         Logfx.runWithMin(Severity.Warn, Logfx.Sink.collect(sink), () -> emitAll());
         Assert.assertEq(expected = List#{(Severity.Warn, "w", Nil), (Severity.Error, "e", Nil), (Severity.Fatal, "f", Nil)}, collected(sink))
 
-    /// infoWith は落ちる段では fields を組み立てない。残る段では組み立てて emit する。
+    /// infoWith does not build the fields for a dropped severity; for a kept severity it builds them and emits.
     @Test
     def testLogWithSkipsBuildingFields(): Unit \ IO + Assert =
         let built = Ref.fresh(Static, 0);
@@ -309,7 +309,7 @@ mod TestLogfx {
             expected = (1, List#{(Severity.Warn, "kept", List#{("k", Logfx.Value.Str("v"))})}),
             (Ref.get(built), collected(sink)))
 
-    /// withFields の中でも段の判定は外の handler に届く。残る行には span の fields が付く。
+    /// Inside withFields the severity check still reaches the outer handler; kept lines get the span fields.
     @Test
     def testWithFieldsForwardsEnabled(): Unit \ IO + Assert =
         let sink = Ref.fresh(Static, Nil);
@@ -323,7 +323,7 @@ mod TestLogfx {
             expected = List#{(Severity.Warn, "kept", List#{("debug.enabled", Logfx.Value.Bool(false)), ("request.id", Logfx.Value.Str("r1"))})},
             collected(sink))
 
-    /// runWithList は全段を集める（テストで落ちる段を気にしなくてよい）。
+    /// runWithList collects every severity (tests need not care about dropped severities).
     @Test
     def testRunWithListEnablesEverySeverity(): Unit \ Assert =
         let (answer, records) = Logfx.runWithList(() -> {
@@ -335,17 +335,17 @@ mod TestLogfx {
 
     // ---- exception ----
 
-    /// exception の 3 フィールドの値を (type, message, stacktrace の行) にする。
+    /// Turn the three exception fields into (type, message, stacktrace lines).
     def exceptionTriple(error: Throwable): (Option[Logfx.Value], Option[Logfx.Value], List[String]) \ IO =
         let fields = Fields.empty() |> Logfx.exception(error);
         (Map.get("exception.type", fields), Map.get("exception.message", fields),
          Map.get("exception.stacktrace", fields) |> Option.flatMap(Logfx.valueAsStr) |> Option.map(String.splitOn(substr = " | ")) |> Option.getWithDefault(Nil))
 
-    /// n 段の再帰の底で投げる。Flix の frame が 8 つより多く積まれる。
+    /// Throw at the bottom of n levels of recursion, so more than 8 Flix frames are stacked.
     def deep(n: Int32): Int32 \ IO =
         if (n == 0) throw new IllegalStateException("deep") else 1 + deep(n - 1)
 
-    /// deep(20) の例外を捕まえる。
+    /// Catch the exception from deep(20).
     def thrownDeep(): Throwable \ IO =
         try {
             checked_cast(new RuntimeException("not thrown ${deep(20)}"))
@@ -353,7 +353,7 @@ mod TestLogfx {
             case e: IllegalStateException => checked_cast(e)
         }
 
-    /// 3 フィールドが付く。type はクラス名、message はそのまま、stacktrace は Flix の frame（Def$ / Clo$）だけを 8 つ。
+    /// Three fields are attached: type is the class name, message is unchanged, and stacktrace holds 8 Flix frames (Def$ / Clo$) only.
     @Test
     def testExceptionFields(): Unit \ IO + Assert =
         let (kind, message, lines) = exceptionTriple(thrownDeep());
@@ -361,7 +361,7 @@ mod TestLogfx {
             expected = (Some(Logfx.Value.Str("java.lang.IllegalStateException")), Some(Logfx.Value.Str("deep")), 8, true),
             (kind, message, List.length(lines), lines |> List.forAll(line -> String.contains(substr = "Def$", line) or String.contains(substr = "Clo$", line))))
 
-    /// message が null なら空。Detail: 以降（PG の詳細。値が入りうる）は落ち、200 字で切る。
+    /// A null message becomes empty; everything from "Detail:" on (the PG detail, which can contain values) is dropped, and the text is cut at 200 characters.
     @Test
     def testExceptionMessageTable(): Unit \ IO + Assert =
         let cases: List[(Throwable, String)] = List#{
@@ -373,7 +373,7 @@ mod TestLogfx {
             expected = cases |> List.map(match (_, expected) -> Some(Logfx.Value.Str(expected))),
             cases |> List.map(match (error, _) -> Fields.empty() |> Logfx.exception(error) |> Map.get("exception.message")))
 
-    /// cause を "型: message" で 3 段まで辿る。4 段目より奥（本当の一番底）は出ない。
+    /// Causes are followed as "type: message" for up to 3 levels; anything deeper than the 4th level (the real bottom) is not emitted.
     @Test
     def testExceptionCauseChain(): Unit \ IO + Assert =
         let deepest: Throwable = checked_cast(new ArithmeticException("deepest"));
@@ -385,7 +385,7 @@ mod TestLogfx {
             expected = Some(Logfx.Value.Str("java.lang.IllegalStateException: c1 <- java.lang.RuntimeException: c2 <- java.lang.IllegalStateException: c3")),
             Fields.empty() |> Logfx.exception(outer) |> Map.get("exception.cause"))
 
-    /// 1 段だけ包んだ例外（JDBC が SQLException を包む形）でも、本当の理由が出る。
+    /// Even for an exception wrapped just once (the shape JDBC uses to wrap a SQLException), the real reason is emitted.
     @Test
     def testExceptionCauseOfWrapped(): Unit \ IO + Assert =
         let cause: Throwable = checked_cast(new ArithmeticException("/ by zero"));
@@ -393,14 +393,14 @@ mod TestLogfx {
             expected = Some(Logfx.Value.Str("java.lang.ArithmeticException: / by zero")),
             Fields.empty() |> Logfx.exception(checked_cast(new RuntimeException("query failed", cause))) |> Map.get("exception.cause"))
 
-    /// cause が無ければ exception.cause は付かない（毎行に空の欄を増やさない）。
+    /// With no cause, exception.cause is not attached (no empty column added to every line).
     @Test
     def testExceptionWithoutCauseHasNoCauseField(): Unit \ IO + Assert =
         Assert.assertEq(
             expected = None,
             Fields.empty() |> Logfx.exception(checked_cast(new RuntimeException("x"))) |> Map.get("exception.cause"))
 
-    /// frame の形は クラス.メソッド(ファイル名:行)。パスは入らず、行番号の無い frame は出ない。
+    /// A frame is shaped Class.method(FileName:line); no path is included, and frames without a line number are not emitted.
     @Test
     def testExceptionFrameShape(): Unit \ IO + Assert =
         let (_, _, lines) = exceptionTriple(thrownDeep());
@@ -410,14 +410,14 @@ mod TestLogfx {
              lines |> List.exists(line -> String.contains(substr = "/", line)),
              lines |> List.exists(line -> String.contains(substr = ":-1)", line) or String.contains(substr = ":0)", line))))
 
-    /// stacktrace の区切りは制御文字でない（toJsonLine が制御文字を落とすので、改行だと frame が全部繋がる）。
+    /// The stacktrace separator is not a control character (toJsonLine drops control characters, so a newline would join all frames together).
     @Test
     def testExceptionStacktraceSurvivesJsonLine(): Unit \ IO + Assert =
         let fields = Fields.empty() |> Logfx.exception(thrownDeep());
         let line = Logfx.toJsonLine(0i64, recordOf(Severity.Error, "m", fields));
         Assert.assertEq(expected = (8, true), (List.length(String.splitOn(substr = " | ", line)), String.contains(substr = "Def$", line)))
 
-    /// 既にある fields はそのまま残り、stacktrace のフィールドは必ず付く。
+    /// Existing fields are kept as they are, and the stacktrace field is always attached.
     @Test
     def testExceptionKeepsExistingFields(): Unit \ IO + Assert =
         let fields = Fields.empty() |> Fields.str("k", "v") |> Logfx.exception(checked_cast(new RuntimeException("x")));

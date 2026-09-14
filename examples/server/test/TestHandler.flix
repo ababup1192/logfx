@@ -1,34 +1,36 @@
 ///
-/// Handler のログ。span が全行に付く事、経路ごとに出る段と message、例外の写しが付く事。
+/// What Handler logs: the span on every line, the severity and message per route, and the
+/// exception fields on a failure.
 ///
-/// WhyNot: 1 行 JSON の文字列で比べない。キーの順と時刻の形は logfx の仕事なので、文字列で
-/// 比べると、意味の変わっていない版上げでこのテストが落ちる。見るのは段・message・キー。
+/// WhyNot: not compared as a line of JSON. The key order and the timestamp format are logfx's
+/// business, so comparing the string makes this test fail on an upgrade that changed nothing it
+/// meant to check. What it looks at is the severity, the message and the keys.
 ///
-/// WhyNot: runWithList の代わりに Sink.collect を使わない。collect は Ref と IO が要るのに対し、
-/// runWithList は純粋で全段が有効なので、LOG_LEVEL の設定にテストが引きずられない。
+/// WhyNot: Sink.collect is not used in place of runWithList. collect needs a Ref and IO, while
+/// runWithList is pure and enables every severity, so the test does not follow LOG_LEVEL.
 ///
 mod TestHandler {
 
     use Logfx.Severity
 
-    /// 行を (段, message, キーの一覧) にする。
+    /// A line as (severity, message, the keys on it).
     def shapes(records: List[Logfx.Record]): List[(Severity, String, List[String])] =
         records |> List.map(record -> (record#severity, record#message, Map.keysOf(record#fields) |> Set.toList))
 
-    /// message で 1 行を取る。無ければテストの誤り。
+    /// One line by its message. Its absence is an error in the test.
     def lineOf(message: String, records: List[Logfx.Record]): Logfx.Record =
         match List.find(record -> record#message == message, records) {
             case Some(record) => record
-            case None         => bug!("'${message}' の行が無い（テストの誤り）")
+            case None         => bug!("no line with the message '${message}' (the test is wrong)")
         }
 
-    /// 行に付いた 1 つのフィールド。
+    /// One field on a line.
     def field(key: String, record: Logfx.Record): Option[Logfx.Value] =
         Map.get(key, record#fields)
 
-    // ---- span ----
+    // ---- Spans ----
 
-    /// span は thunk の中で出た全行に付く。routing は debug、無い経路は warn で、status は 404。
+    /// The span is on every line emitted inside the thunk. routing is debug, an unknown route is warn, and the status is 404.
     @Test
     def testHandlerSpanIsOnEveryLine(): Unit \ {Assert, IO} =
         let (status, records) = Logfx.runWithList(() -> Handler.handle("r1", "GET", "/nope"));
@@ -38,7 +40,7 @@ mod TestHandler {
                 (Severity.Warn,  "no route", List#{"http.request.method", "request.id", "url.path"})}),
             (status, shapes(records)))
 
-    /// 経路ごとに出る段と message。
+    /// The severity and message emitted per route.
     @Test
     def testHandlerRouteTable(): Unit \ {Assert, IO} =
         let table = List#{
@@ -53,9 +55,9 @@ mod TestHandler {
                 (status, records |> List.map(record -> (record#severity, record#message)))
             }))
 
-    // ---- 例外 ----
+    // ---- Exceptions ----
 
-    /// Logfx.exception は型・message・cause・stacktrace を 1 行に足す（cause が無ければ付かない）。
+    /// Logfx.exception adds the type, message, cause and stacktrace to one line (no cause field when there is no cause).
     @Test
     def testHandlerExceptionIsAttached(): Unit \ {Assert, IO} =
         let (_, records) = Logfx.runWithList(() -> Handler.handle("r2", "GET", "/posts"));

@@ -1,25 +1,25 @@
-# tag を打った時だけ、flix doc のリファレンスを GitHub Pages に置く。
+# Puts the flix doc reference on GitHub Pages, and only on a tag.
 #
-# WhyNot: main への push ごとに公開しない。リファレンスは「今 flix.toml に書ける版」の
-# API でないと意味が無く、main の途中の状態を出すと、利用者が入れている版と読んでいる
-# ページがずれる。ずれている事は読んでいる側から見えない。
+# WhyNot: not published on every push to main. A reference is only worth reading if it is the API
+# of a version you can actually write in flix.toml; publishing from the middle of main makes the
+# page drift from the version the reader installed, and the drift is invisible to them.
 name: pages
 
 on:
   push:
     tags: ["v*"]
-  # 公開に失敗した時に、tag を打ち直さずに回せる口。
+  # A way to run this again after a failed publish, without cutting another tag.
   workflow_dispatch:
 
-# WhyNot: 既定の read-all のままにしない。Pages への deploy は id-token（OIDC）で
-# 認証するので、この 2 つが無いと deploy の step だけが落ちる。
+# WhyNot: not left at the default read-all. Deploying to Pages authenticates with an id-token
+# (OIDC), so without these two the deploy step alone fails.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# WhyNot: 同時に走らせない。Pages の deploy は 1 つの環境を上書きするので、
-# 重なると後から始まった方が古い方に負ける事がある。
+# WhyNot: not run concurrently. A Pages deploy overwrites one environment, so when two overlap
+# the one that started later can lose to the older one.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -39,9 +39,9 @@ jobs:
           java-version: "21"
       - id: flix
         run: echo "version=$(sed -n 's/^flix *= *\"\(.*\)\"/\1/p' flix.toml)" >> "$GITHUB_OUTPUT"
-      - name: Flix のコンパイラ
+      - name: The Flix compiler
         run: curl -sSL --fail -o /tmp/flix.jar https://github.com/flix/flix/releases/download/v${{ steps.flix.outputs.version }}/flix.jar
-      - name: リファレンスを作る
+      - name: Build the reference
         run: make doc
         env:
           FLIX_JAR: /tmp/flix.jar

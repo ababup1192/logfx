@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 出た行（$1）が README に載せている JSON と同じ形か。
+# Checks that the line that came out ($1) has the shape the README shows.
 set -euo pipefail
 out="$1"
 

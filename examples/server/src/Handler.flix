@@ -1,11 +1,11 @@
 ///
-/// リクエスト 1 本の処理。利用側が普段書く場所で、Sink も handler も出てこない。
+/// One request. This is where the caller's code normally lives: no sink and no handler in sight.
 ///
-/// WhyNot: ここで runWith を呼ばない。呼ぶと出力先がこの関数に焼き付いて、テストから差し替え
-/// られなくなる。handler はスレッドの入口（Server）に 1 つだけ置く。
+/// WhyNot: runWith is not called here. It would burn the destination into this function and a test
+/// could no longer swap it. The handler goes once, at the entry of a thread (Server).
 ///
-/// WhyNot: logger を引数で受け取らない。Logfx は effect なので、受け渡しは呼び出しの連鎖では
-/// なく handler が持つ。引数で配ると、経路の途中の関数が全部それを知る事になる。
+/// WhyNot: a logger is not taken as a parameter. Logfx is an effect, so it travels by handler and
+/// not by the call chain. Passing it along would make every function on the route know about it.
 ///
 mod Handler {
 
@@ -14,13 +14,13 @@ mod Handler {
     import java.lang.RuntimeException
     import java.lang.Throwable
 
-    // ---- 入口 ----
+    // ---- Entry ----
 
     ///
-    /// リクエスト 1 本を処理して HTTP の status を返す。
+    /// Handles one request and answers with an HTTP status code.
     ///
-    /// 効果は `{IO, Logfx}`。`Logfx` はログを出すから、`IO` は仕事の方が触るから付く。
-    /// 行がどこへ出るかは、この `Logfx` を handle する側（Server）が決める。
+    /// The effect is `{IO, Logfx}`: `Logfx` because it logs, `IO` because the work itself does.
+    /// Where the lines go is decided by whoever handles `Logfx` (Server).
     ///
     pub def handle(requestId: String, method: String, path: String): Int32 \ {IO, Logfx} =
         run {
@@ -28,10 +28,10 @@ mod Handler {
         } with Logfx.withFields(span(requestId, method, path))
 
     ///
-    /// リクエストの span。中で出る行すべてに付く。
+    /// The span for a request. Every line emitted inside it carries these.
     ///
-    /// WhyNot: path をそのままキーにしても基数は上がらない（url.path は OTel の名前で、
-    /// 集計に使うのは route.pattern の方）。数える側が困るのは pattern が無い時。
+    /// WhyNot: the path is not left out for being high cardinality. `url.path` is the OTel name for
+    /// the path as it came in, and what you group by is `route.pattern`, which is emitted too.
     ///
     def span(requestId: String, method: String, path: String): Fields =
         Fields.empty()
@@ -39,11 +39,12 @@ mod Handler {
             |> Fields.str("http.request.method", method)
             |> Fields.str("url.path", path)
 
-    // ---- 経路 ----
+    // ---- Routes ----
 
-    /// 経路ごとの処理。span の中なので、ここで出る行には request.id などが必ず付く。
+    /// Dispatch. This runs inside the span, so every line below carries request.id and the rest.
     def route(path: String): Int32 \ {IO, Logfx} =
-        // 重い行は、その段が有効な時だけ組み立てる（debugWith の thunk は enabled が true の時しか走らない）。
+        // An expensive line is built only when its severity is on: the thunk of debugWith
+        // runs only when `enabled` answers true.
         Logfx.debugWith("routing", () -> Fields.empty() |> Fields.str("route.pattern", pattern(path)));
         match path {
             case "/posts"  => listPosts()
@@ -53,7 +54,7 @@ mod Handler {
                 404
         }
 
-    /// 記事の一覧。数えた物は Int32.toInt64 で渡す（Fields.int は Int64）。
+    /// A listing. A count is an Int32, so it goes through Int32.toInt64 (Fields.int takes Int64).
     def listPosts(): Int32 \ {IO, Logfx} =
         try {
             let posts = fetchPosts();
@@ -64,7 +65,7 @@ mod Handler {
             200
         } catch {
             case error: Throwable =>
-                // Logfx.exception は fields を足す関数なので、そのままパイプの途中に入る。
+                // Logfx.exception adds fields, so it sits in the middle of the pipe.
                 Fields.empty()
                     |> Fields.int("http.response.status_code", 500i64)
                     |> Logfx.exception(error)
@@ -72,15 +73,15 @@ mod Handler {
                 500
         }
 
-    /// path から経路の形。
+    /// The shape of the route, for grouping.
     def pattern(path: String): String =
         if (String.startsWith(prefix = "/posts", path)) "/posts" else path
 
     ///
-    /// DB の代わり。呼ぶたびに投げる。
+    /// Stands in for the database. Throws every time.
     ///
-    /// WhyNot: 成功する版を置かない。この例で見せたいのは exception の行なので、
-    /// 落ちる経路が 1 本要る。
+    /// WhyNot: there is no version that succeeds. What this example is here to show is the
+    /// exception line, so one route has to fail.
     ///
     def fetchPosts(): List[String] \ IO =
         throw new RuntimeException("connection refused")

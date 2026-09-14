@@ -1,8 +1,8 @@
 import java.lang.System
 
 ///
-/// サーバの入口。logfx について決める事は全部ここに集まる（どこへ書くか、壊れた時どこへ逃がすか、
-/// 全行に何を足すか、どの段から出すか）。
+/// The entry point. Everything logfx needs decided is gathered here: where lines are written,
+/// where they go when that breaks, what every line carries, and from which severity up.
 ///
 def main(): Unit \ IO =
     let sink = Server.sink();
@@ -19,12 +19,12 @@ def main(): Unit \ IO =
     }
 
 ///
-/// サーバの配線。Sink を組み、段を決め、リクエストごとに handler を置く。
+/// The wiring: build the sink, pick the severity, install the handler once per request.
 ///
-/// WhyNot: main を丸ごと 1 つの runWithMin で包んで、その中で spawn しない。Logfx は effect
-/// なので handler はスレッドを越えず、spawn の中で Logfx.info を呼ぶと
-/// 「Unable to unify the effect formulas: 'Logfx' and '(Chan + IO + NonDet) & e0'」で落ちる。
-/// 越えるのは Sink の方で、値なのでそのまま渡せる。
+/// WhyNot: main is not wrapped in a single runWithMin with the spawns inside it. Logfx is an
+/// effect, so a handler does not cross a thread: calling Logfx.info inside such a spawn fails with
+/// "Unable to unify the effect formulas: 'Logfx' and '(Chan + IO + NonDet) & e0'".
+/// What crosses is the sink, which is a value and can simply be passed.
 ///
 mod Server {
 
@@ -33,13 +33,13 @@ mod Server {
 
     import java.lang.System
 
-    // ---- 配線 ----
+    // ---- Wiring ----
 
     ///
-    /// 全リクエストが共有する 1 本の Sink。enrich で全行に service.* を足し、fallback で
-    /// stdout が壊れた日の行き先を stderr にする（logfx.fallback_reason 付き）。
+    /// One sink, shared by every request. `enrich` puts service.* on every line, and `fallback`
+    /// names where a line goes on the day stdout breaks (with logfx.fallback_reason attached).
     ///
-    /// WhyNot: リクエストごとに作らない。Sink は値で、持ち回る状態が無い。
+    /// WhyNot: not built per request. A sink is a value and carries no state to keep apart.
     ///
     pub def sink(): Logfx.Sink =
         let service = Fields.empty()
@@ -50,20 +50,20 @@ mod Server {
         Logfx.Sink.enrich(service, Logfx.Sink.fallback(toStdout, toStderr))
 
     ///
-    /// LOG_LEVEL から段を読む。無い時と知らない語は Info。
+    /// The severity from LOG_LEVEL. Unset, or a word that is not a severity, means Info.
     ///
-    /// WhyNot: 知らない語で落とさない。設定の綴り違いでサーバが起動しない方が、
-    /// 1 段ずれてログが出る事より高く付く。
+    /// WhyNot: an unknown word is not fatal. A server that refuses to start over a typo in the
+    /// configuration costs more than logging one severity off.
     ///
-    /// WhyNot: 段の判定を Sink.minSeverity に任せない。sink まで行ってから捨てると、捨てる行でも
-    /// fields は組み上がっている。runWithMin なら debugWith が組み立てごと飛ばせる。
+    /// WhyNot: the severity test is not left to Sink.minSeverity. Dropping the line at the sink
+    /// means the fields were built anyway; runWithMin lets debugWith skip the building too.
     ///
     pub def minSeverity(): Severity \ IO =
         let text: String = System.getenv("LOG_LEVEL");
         if (Object.isNull(text)) Severity.Info
         else Logfx.parseSeverity(text) |> Option.getWithDefault(Severity.Info)
 
-    /// 受け口の代わり。(request.id, method, path) を順に流す。
+    /// Stands in for the listener. Hands over (request.id, method, path) in turn.
     pub def incoming(): List[(String, String, String)] =
         List#{("r1", "GET", "/health"), ("r2", "GET", "/posts"), ("r3", "GET", "/nope")}
 

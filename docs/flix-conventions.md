@@ -81,7 +81,7 @@ How と What をコメントに書かない。実装の由来・旧実装・移�
 - **その case だけが使う値は、レコードに平らに並べず enum の payload へ入れる。**
   並べると、どのフィールドがどの case の物か型から読めなくなる。
   どの case でも使う値はレコード側に残す
-  - payload にレコードは置けない（下の `Eq` の落とし穴）。値が 2 つ以上要るときは
+  - payload にレコードは置けない（下の `Eq` の注意）。値が 2 つ以上要るときは
     case へ並べるか、`Eq` を derive した別の enum で包む
 
 詳しくと例は `.claude/skills/flix-docs/SKILL.md` の「型の設計」。
@@ -224,7 +224,7 @@ pub def resolvers(): GeneratedAdmin.WebhookResolvers[AdminEff] =
 - 行の handler は自分の effect（`Graphql` だけ、`Health[ef]` の `ef` だけ）を宣言し、表に載せる時に `widen` で表全体の effect に広げる。死活の値（DB に届くか・ワーカーのまとめ・接続数）は effect でなく `Health[ef]`（関数のレコード）で `routes` に渡す
 - `handler` は Flix の予約語。レコードのフィールドも変数も `handle` / `pipeline` にする
 
-## その他の落とし穴
+## その他の注意
 
 - レコードは `Eq` / `Order` を持てない。比較したい値は名前付き 1 フィールドの enum で包む
 - `forM` は効果の逐次実行には使えない

@@ -1,27 +1,32 @@
-.PHONY: check test consume examples doc pkg release clean
+.PHONY: check check-jargon test consume examples doc pkg release clean
 
-# Flix コンパイラは flix_game_engine の devbox が持つ jar を借りる（bin/flix が解決する）。
+# The Flix compiler jar is borrowed from a devbox profile; bin/flix resolves it.
 check:
 	bin/flix check
 
 test:
 	bin/flix test
 
-# まっさらなプロジェクトから取り込んで動かす（CI と同じ物）。
+# Watch the Japanese prose for words the denylist has a replacement for.
+check-jargon:
+	scripts/check-jargon.sh
+
+# Pull it into a blank project and run it (the same thing CI does).
 consume:
 	ci/consume.sh local
 
-# examples/ を、今のソースから作った .fpkg に対してビルドして走らせる。
+# Build and run examples/ against the .fpkg built from the current source.
 examples:
 	ci/example.sh
 
-# 公開するリファレンス（flix doc）を build/doc/ に作る。
-# tag を打つと .github/workflows/pages.yml が同じ script を走らせて GitHub Pages に置く。
+# Build the published reference (flix doc) into build/doc/.
+# On a tag, .github/workflows/pages.yml runs the same script and puts it on GitHub Pages.
 doc:
 	ci/doc.sh
 
-# 配布用の .fpkg を作る。
-# WhyNot: test/ を詰めない。利用側で TestLogfx が走る意味が無く、モジュール名を 1 つ余計に取る。
+# Build the distributable .fpkg.
+# WhyNot: test/ is not packed in. Running TestLogfx on the calling side means nothing, and it
+# would take one more module name from them.
 PKG_DIR = build/logfx
 
 pkg:
@@ -32,18 +37,18 @@ pkg:
 	cd $(PKG_DIR) && $(CURDIR)/bin/flix build-pkg
 	@ls -l $(PKG_DIR)/artifact/
 
-# GitHub の release に .fpkg と flix.toml を付ける。
-# 利用側は flix.toml の [dependencies] に "github:ababup1192/logfx" = "<version>" と書く。
-# WhyNot: tag を手で決めない。Flix は tag v<version> の release から .fpkg を取るので、
-# flix.toml の version とずれると解決に失敗する。
+# Attach the .fpkg and flix.toml to a GitHub release.
+# The calling side writes "github:ababup1192/logfx" = "<version>" under [dependencies].
+# WhyNot: the tag is not chosen by hand. Flix takes the .fpkg from the release tagged v<version>,
+# so a tag that drifts from the version in flix.toml makes resolution fail.
 VERSION = $(shell sed -n 's/^version *= *"\(.*\)"/\1/p' flix.toml)
 
-# WhyNot: notes を版の文字列だけにしない。README は「0.x の minor は壊す事があるので
-# release note を読め」と書いている。読む物が「logfx 0.3.0」の 1 行だと、その約束が空になる。
+# WhyNot: the notes are not just the version string. The README tells the reader that a 0.x minor
+# may break them and to read the release notes; one line saying "logfx 0.3.0" empties that promise.
 NOTES = docs/release-notes/v$(VERSION).md
 
 release: pkg
-	@test -f $(NOTES) || { echo "$(NOTES) が無い。この版で何が変わったかを書いてから release する"; exit 1; }
+	@test -f $(NOTES) || { echo "$(NOTES) is missing. Write what changed in this version before releasing."; exit 1; }
 	gh release create v$(VERSION) \
 		$(PKG_DIR)/artifact/logfx.fpkg $(PKG_DIR)/artifact/flix.toml \
 		--title "v$(VERSION)" --notes-file $(NOTES)
