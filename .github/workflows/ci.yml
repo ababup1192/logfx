@@ -1,0 +1,78 @@
+# push ごとに型検査とテスト、そして「まっさらなプロジェクトから取り込めるか」を見る。
+# Flix コンパイラは release の jar を取り、bin/flix に FLIX_JAR で渡す。
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  # Flix が github: の依存を解決する時に GitHub の API を叩く。認証が無いと runner の
+  # 共有 IP で制限に当たるので、全 job に token を渡す（bin/flix が拾う）。
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # WhyNot: bin/with-lock を CI で使わない。/usr/bin/shlock は BSD（macOS）の物で
+  # ubuntu の runner には無い。手元でコンパイラを 2 本重ねない為の仕掛けなので、
+  # job が 1 本ずつ走る CI には要らない。
+  FLIX_NO_LOCK: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      # WhyNot: 版をこのファイルに書かない。flix.toml の flix = "..." とずれると、
+      # 手元と CI で違うコンパイラを使う事になり、CI の緑が何の保証でもなくなる。
+      - id: flix
+        run: echo "version=$(sed -n 's/^flix *= *\"\(.*\)\"/\1/p' flix.toml)" >> "$GITHUB_OUTPUT"
+      - name: Flix のコンパイラ
+        run: curl -sSL --fail -o /tmp/flix.jar https://github.com/flix/flix/releases/download/v${{ steps.flix.outputs.version }}/flix.jar
+      - run: make check
+        env:
+          FLIX_JAR: /tmp/flix.jar
+      - run: make test
+        env:
+          FLIX_JAR: /tmp/flix.jar
+
+  # 取り込み側から見る。ライブラリが自分のテストに通る事と、パッケージとして
+  # 取り込める事は別物（0.1.0 は後者が壊れていた）。
+  consume:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - id: flix
+        run: echo "version=$(sed -n 's/^flix *= *\"\(.*\)\"/\1/p' flix.toml)" >> "$GITHUB_OUTPUT"
+      - name: Flix のコンパイラ
+        run: curl -sSL --fail -o /tmp/flix.jar https://github.com/flix/flix/releases/download/v${{ steps.flix.outputs.version }}/flix.jar
+      - name: 今のソースから作った .fpkg を取り込む
+        run: ci/consume.sh local
+        env:
+          FLIX_JAR: /tmp/flix.jar
+
+  # tag を打った後だけ。release に置いた .fpkg を、Flix の依存解決ごと通して確かめる
+  # （local と違い、GitHub から降りてくる物と security の設定が実際に使われる）。
+  consume-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [check, consume]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - id: flix
+        run: echo "version=$(sed -n 's/^flix *= *\"\(.*\)\"/\1/p' flix.toml)" >> "$GITHUB_OUTPUT"
+      - name: Flix のコンパイラ
+        run: curl -sSL --fail -o /tmp/flix.jar https://github.com/flix/flix/releases/download/v${{ steps.flix.outputs.version }}/flix.jar
+      - name: release の .fpkg を取り込む
+        run: ci/consume.sh release
+        env:
+          FLIX_JAR: /tmp/flix.jar

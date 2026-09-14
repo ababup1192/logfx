@@ -1,0 +1,11 @@
+[package]
+name        = "consumer"
+description = "logfx を取り込めるかだけを見る捨てプロジェクト"
+version     = "0.0.0"
+flix        = "@FLIX@"
+authors     = ["ci"]
+
+[dependencies]
+"github:ababup1192/logfx" = { version = "@VERSION@", security = "unrestricted" }
+
+[mvn-dependencies]

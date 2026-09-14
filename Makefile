@@ -1,4 +1,4 @@
-.PHONY: check test pkg release clean
+.PHONY: check test consume pkg release clean
 
 # Flix コンパイラは flix_game_engine の devbox が持つ jar を借りる（bin/flix が解決する）。
 check:
@@ -6,6 +6,10 @@ check:
 
 test:
 	bin/flix test
+
+# まっさらなプロジェクトから取り込んで動かす（CI と同じ物）。
+consume:
+	ci/consume.sh local
 
 # 配布用の .fpkg を作る。
 # WhyNot: test/ を詰めない。利用側で TestLogfx が走る意味が無く、モジュール名を 1 つ余計に取る。
