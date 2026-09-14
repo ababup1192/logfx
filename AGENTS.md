@@ -36,12 +36,16 @@ flix_graphql_hello（Flix 製のヘッドレス CMS）の `src/log/` から 2026
 - **Java interop を増やす時は影響を考える。** 利用側は `security = "unrestricted"` を書かないと
   取り込めない。今は `Logfx.exception` の `java.lang.Throwable` だけがその理由
 - **`pub eff Logfx` の op を増やさない。** handler は誰でも書けるので、op を足すと自分で
-  handler を書いた利用者が全員壊れる。増やすなら major を上げる
+  handler を書いた利用者が全員壊れる。op は `emit` と `enabled` の 2 つで確定。
+  それでも増やすなら、`0.x` の間は minor、`1.0` 以降は major を上げる
 - **`Sink` は `Record -> Unit \ IO` の型 alias のまま。** opaque な enum にすると、利用者が
   自分の `def` をそのまま渡せなくなる
 - **パッケージ名とトップレベルの mod 名を一致させる**（`logfx` → `Logfx`）
 - **版は `flix.toml` の `[package] version` と release の tag（`v<version>`）を必ず揃える。**
   Flix は tag から `.fpkg` を取るので、ずれると利用側の解決が失敗する
+- **実験フラグ（`--Xsubeffecting=lambdas` など）込みでしか通らないコードを書かない。**
+  利用側は素の flix で取り込む。純粋なラムダを `\ IO` の所に渡す時は `checked_ecast` を書く
+- **release の前に `make consume` を通す。** 型検査とテストが緑でも取り込めない事がある
 
 ## コーディングポリシー
 
@@ -58,19 +62,23 @@ Flix コンパイラは `bin/flix` が解決する（`FLIX_JAR` か `FLIX_ENGINE
 ```bash
 make check    # 型検査
 make test     # テスト
+make consume  # まっさらなプロジェクトから取り込んで動かす（ci/consume.sh local）
 make pkg      # 配布用の .fpkg（build/logfx/artifact/）
 make release  # GitHub の release に .fpkg と flix.toml を付ける
 ```
 
 `bin/flix` は `bin/with-lock` で順番待ちになる（同じ機械で 2 つの Flix コンパイラを同時に
 動かすと、1 本 3 GB のメモリを取り合って GC で遅くなるか OOM で落ちる）。**待たされるのは正常**で、
-`pkill` や `FLIX_NO_LOCK` で割り込まない。
+`pkill` や `FLIX_NO_LOCK` で割り込まない（`FLIX_NO_LOCK` を使うのは、job が 1 本ずつ走り
+`/usr/bin/shlock` も無い CI の runner だけ）。
 
 ## ディレクトリ
 
 | 場所 | 中身 |
 |---|---|
-| `src/Logfx.flix` | effect の宣言、6 段の関数、`Value` と JSON 化、`runWith` / `runWithList`、`withFields`、`exception` |
+| `src/Logfx.flix` | effect の宣言、6 段の関数（`log` / `logWith` 経由）、`Value` と JSON 化、`runWith` / `runWithMin` / `runWithList`、`withFields`、`exception` |
 | `src/Logfx/Fields.flix` | フィールドのビルダー |
-| `src/Logfx/Sink.flix` | Sink（`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich`） |
+| `src/Logfx/Sink.flix` | Sink（`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich` / `tee` / `fallback`） |
 | `test/TestLogfx.flix` | 表駆動のテスト |
+| `ci/` | 取り込み側から見る smoke（`consume.sh` と、捨てプロジェクトの `consumer/`） |
+| `.github/workflows/ci.yml` | push ごとの `make check` / `make test` と取り込みの確認 |

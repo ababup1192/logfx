@@ -5,9 +5,9 @@
 #   ci/consume.sh local     手元でビルドした .fpkg を lib/ に置いて取り込む（毎回）
 #   ci/consume.sh release   GitHub の release から取り込む（tag を打った後）
 #
-# WhyNot: 手で 1 度試して終わりにしない。0.1.0 を出した時、security = "unrestricted" が
-# 要る事も Sink.silent が experimental フラグ無しでは通らない事も、手で試して初めて
-# 分かった。自動でなければ、取り込めない版を出す事故は必ず起きる。
+# WhyNot: 手で 1 度試して終わりにしない。取り込み側でしか出ない失敗（security の設定、
+# experimental フラグ、パッケージに入れ忘れたファイル）は make check と make test では
+# 1 つも見えないので、自動でなければ取り込めない版を出す事故が必ず起きる。
 #
 set -euo pipefail
 

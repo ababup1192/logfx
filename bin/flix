@@ -33,7 +33,7 @@ fi
 
 # WhyNot: --Xsubeffecting=lambdas を付けない（flix_graphql_hello の同じ script は付ける）。
 # 利用側は素の flix で取り込むので、このフラグ込みでしか通らないコードを書くと、
-# 手元では緑のまま取り込み不能な版が出る（実際 0.1.0 の Sink.silent がそうなっていた）。
+# 手元では緑のまま、取り込めない版が出る。
 # 純粋なラムダを `\ IO` に渡す所は checked_ecast を書く。
 # WhyNot: GitHub の依存（github:ababup1192/sqlfx）を認証なしで解決しない。CI の runner は
 # IP を共有していて、認証なしの API 制限にすぐ当たり、ビルドが依存の解決で落ちる。

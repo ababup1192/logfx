@@ -38,7 +38,7 @@ jobs:
           FLIX_JAR: /tmp/flix.jar
 
   # 取り込み側から見る。ライブラリが自分のテストに通る事と、パッケージとして
-  # 取り込める事は別物（0.1.0 は後者が壊れていた）。
+  # 取り込める事は別物。
   consume:
     runs-on: ubuntu-latest
     steps:
