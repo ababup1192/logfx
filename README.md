@@ -114,8 +114,8 @@ as one `BigDecimal`, so `12` comes out as `12.0` — a log backend then types th
 
 ## When this gets archived
 
-This library was extracted from [flix_graphql_hello](https://github.com/ababup1192/flix_graphql_hello),
-a headless CMS written in Flix. If that project stops using logfx, this repository is archived and
+This library was extracted from a headless CMS written in Flix, developed in a private
+repository. If that project stops using logfx, this repository is archived and
 the README says so on the first line. The last released version keeps working — it is a source
 package with no Maven dependencies, pinned to a Flix release. The harm in an unmaintained library is not that it stopped;
 it is not knowing whether it stopped. So: that is the condition, written down in advance.
@@ -269,8 +269,8 @@ let (result, lines) = Logfx.runWithList(() -> handleRequest(req));
 
 ## アーカイブする条件
 
-これは [flix_graphql_hello](https://github.com/ababup1192/flix_graphql_hello)（Flix 製のヘッド
-レス CMS）から切り出した物。そのプロジェクトが logfx を使わなくなったら、このリポジトリは
+これは非公開のリポジトリで作っている Flix 製のヘッドレス CMS から切り出した物。
+そのプロジェクトが logfx を使わなくなったら、このリポジトリは
 アーカイブして README の 1 行目にそう書く。その時点の版はそのまま動く（Maven 依存の無い
 ソースのパッケージで、Flix の release に固定されている）。放置されたライブラリの害は「止まっていること」より「止まって
 いるか分からないこと」なので、条件を先に書いておく。
