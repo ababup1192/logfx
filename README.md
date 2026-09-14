@@ -4,12 +4,14 @@ Flix の構造化ログ。`Logfx` effect で 1 行を出し、出力先（Sink�
 JDK より外の依存は無い。
 
 ```flix
+import java.lang.System
+
 let sink = Logfx.Sink.json(_ -> System.currentTimeMillis(), line -> println(line));
 
 Logfx.runWith(sink, () -> {
     Logfx.Fields.empty()
         |> Logfx.Fields.str("http.method", "GET")
-        |> Logfx.Fields.int("http.status_code", 200)
+        |> Logfx.Fields.int("http.status_code", 200i64)
         |> Logfx.info("request finished")
 })
 ```
@@ -24,15 +26,18 @@ Logfx.runWith(sink, () -> {
 
 ```toml
 [dependencies]
-"github:ababup1192/logfx" = "0.1.0"
+"github:ababup1192/logfx" = { version = "0.1.0", security = "unrestricted" }
 ```
+
+`security = "unrestricted"` が要るのは、`exception` が `java.lang.Throwable` を触るため。
+版だけを書く短い形（`= "0.1.0"`）だと Flix が取り込みを断る。
 
 ## 持っている物
 
 | | |
 |---|---|
 | `Logfx` | effect。`trace` / `debug` / `info` / `warn` / `error` / `fatal` |
-| `Logfx.Fields` | フィールドのビルダー。`str` / `int` / `bool` / `strs` / `opt` / `merge` をパイプで繋ぐ |
+| `Logfx.Fields` | フィールドのビルダー。`str` / `int`（`Int64`）/ `bool` / `strs` / `opt` / `merge` をパイプで繋ぐ |
 | `Logfx.Sink` | `Record -> Unit \ IO`。**値なので利用側が差せる**。`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich` |
 | `Logfx.withFields` | 入れ子の文脈。中で出る行すべてにフィールドが付く |
 | `Logfx.exception` | `Throwable` から `exception.type` / `.message` / `.stacktrace` を作る（cause を辿る） |
