@@ -2,7 +2,7 @@
 # flix ラッパ。コンパイラ jar は flix_game_engine の devbox profile から借りる。
 # WhyNot: flix.nix の flix コマンドを直に exec しないのは、それが自分専用の JRE を
 # 同梱していて手元の jdk と別マイナー版になるため。jar だけ借り、JRE は手元に固定する。
-ENGINE_ROOT="$HOME/Desktop/flix_game_engine"
+ENGINE_ROOT="${FLIX_ENGINE_ROOT:-$HOME/Desktop/flix_game_engine}"
 
 # CI などで jar を直接指す時は FLIX_JAR を環境変数で渡す（release の flix.jar）
 FLIX_JAR="${FLIX_JAR:-}"

@@ -10,7 +10,7 @@ set -u
 name="$1"
 shift
 
-lock="${TMPDIR:-/tmp}/flix_graphql_hello.${name}.lock"
+lock="${TMPDIR:-/tmp}/flix.${name}.lock"
 waited=0
 limit="${WITH_LOCK_TIMEOUT:-3600}"
 
