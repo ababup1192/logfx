@@ -403,18 +403,33 @@ mod Logfx {
     ///
     pub def toJsonLine(timeMillis: Int64, record: Record): String = region rc {
         let sb = StringBuilder.empty(rc);
-        StringBuilder.append('{', sb);
-        writePair("time", Value.Str(timeText(timeMillis)), sb);
-        StringBuilder.append(',', sb);
-        writePair("severity", Value.Str(severityText(record#severity)), sb);
-        StringBuilder.append(',', sb);
-        writePair("message", Value.Str(record#message), sb);
-        record#fields
-            |> Map.remove("time") |> Map.remove("severity") |> Map.remove("message")
-            |> Map.forEach(key -> value -> { StringBuilder.append(',', sb); writePair(key, value, sb) });
-        StringBuilder.append('}', sb);
+        // WhyNot: the head is not written through writePair. Its three keys need no escaping, the
+        // severity is one of six words that need none either, and the time would otherwise be built
+        // as a string only to be copied in and scanned for characters it cannot contain.
+        StringBuilder.appendString("{\"time\":\"", sb);
+        writeTime(timeMillis, sb);
+        StringBuilder.appendString("\",\"severity\":\"", sb);
+        StringBuilder.appendString(severityText(record#severity), sb);
+        StringBuilder.appendString("\",\"message\":", sb);
+        writeText(record#message, sb);
+        withoutHeadKeys(record#fields)
+            |> Map.forEach(key -> value -> { StringBuilder.appendString(",", sb); writePair(key, value, sb) });
+        StringBuilder.appendString("}", sb);
         StringBuilder.toString(sb)
     }
+
+    ///
+    /// The fields without `time`, `severity` and `message`, which the head writes itself.
+    ///
+    /// WhyNot: `Map.remove` is not simply called three times. Each one rebuilds the map, and almost
+    /// no line carries any of these three, so almost every line paid for three copies of its fields
+    /// to remove nothing. Looking first costs three comparisons.
+    ///
+    def withoutHeadKeys(fields: Fields): Fields =
+        if (Map.memberOf("time", fields) or Map.memberOf("severity", fields) or Map.memberOf("message", fields))
+            fields |> Map.remove("time") |> Map.remove("severity") |> Map.remove("message")
+        else
+            fields
 
     /// `"key":value`.
     def writePair(key: String, value: Value, sb: StringBuilder[r]): Unit \ r =
@@ -561,7 +576,19 @@ mod Logfx {
     /// The calendar arithmetic itself is Howard Hinnant's `civil_from_days`; leap days, year 9999
     /// and negative times are pinned down in a table test.
     ///
-    pub def timeText(timeMillis: Int64): String =
+    pub def timeText(timeMillis: Int64): String = region rc {
+        let sb = StringBuilder.empty(rc);
+        writeTime(timeMillis, sb);
+        StringBuilder.toString(sb)
+    }
+
+    ///
+    /// The same, written straight into `sb`.
+    ///
+    /// WhyNot: the pieces are not assembled with `pad` and string interpolation, as they were.
+    /// That was eight allocations for a field every line carries; writing the digits costs none.
+    ///
+    def writeTime(timeMillis: Int64, sb: StringBuilder[r]): Unit \ r =
         let days = floorDiv(timeMillis, 86400000i64);
         let msOfDay = timeMillis - days * 86400000i64;
         let (year, month, day) = civilOf(days);
@@ -569,7 +596,62 @@ mod Logfx {
         let minute = (msOfDay / 60000i64) - hour * 60i64;
         let second = (msOfDay / 1000i64) - (msOfDay / 60000i64) * 60i64;
         let millis = msOfDay - (msOfDay / 1000i64) * 1000i64;
-        "${pad(4, year)}-${pad(2, month)}-${pad(2, day)}T${pad(2, hour)}:${pad(2, minute)}:${pad(2, second)}.${pad(3, millis)}Z"
+        writeFixed(year, 4, sb);
+        StringBuilder.appendString("-", sb);
+        writeFixed(month, 2, sb);
+        StringBuilder.appendString("-", sb);
+        writeFixed(day, 2, sb);
+        StringBuilder.appendString("T", sb);
+        writeFixed(hour, 2, sb);
+        StringBuilder.appendString(":", sb);
+        writeFixed(minute, 2, sb);
+        StringBuilder.appendString(":", sb);
+        writeFixed(second, 2, sb);
+        StringBuilder.appendString(".", sb);
+        writeFixed(millis, 3, sb);
+        StringBuilder.appendString("Z", sb)
+
+    ///
+    /// `n` as exactly `width` digits, zero-padded.
+    ///
+    /// WhyNot: a number that does not fit, and a negative one, still go through `pad`. Neither can
+    /// arise from a time this formats — the year is the only field that could, and the table test
+    /// pins it up to 9999 — but whatever `String.padLeft` wrote for them before, it still writes.
+    ///
+    def writeFixed(n: Int64, width: Int32, sb: StringBuilder[r]): Unit \ r =
+        if (n < 0i64 or n >= tenPow(width)) StringBuilder.appendString(pad(width, n), sb)
+        else writeFixedDigits(n, width, sb)
+
+    /// The last `width` digits of `n`, most significant first.
+    def writeFixedDigits(n: Int64, width: Int32, sb: StringBuilder[r]): Unit \ r =
+        if (width <= 0) ()
+        else {
+            writeFixedDigits(n / 10i64, width - 1, sb);
+            StringBuilder.appendString(digitText(n - (n / 10i64) * 10i64), sb)
+        }
+
+    /// The smallest number that does not fit in `width` digits.
+    def tenPow(width: Int32): Int64 = match width {
+        case 2 => 100i64
+        case 3 => 1000i64
+        case 4 => 10000i64
+        case _ => 10i64
+    }
+
+    /// One digit as text. Out of range answers "0", which `writeFixed` has already ruled out.
+    def digitText(digit: Int64): String = match digit {
+        case 0i64 => "0"
+        case 1i64 => "1"
+        case 2i64 => "2"
+        case 3i64 => "3"
+        case 4i64 => "4"
+        case 5i64 => "5"
+        case 6i64 => "6"
+        case 7i64 => "7"
+        case 8i64 => "8"
+        case 9i64 => "9"
+        case _    => "0"
+    }
 
     /// Division that rounds towards negative infinity (`divisor` is positive).
     def floorDiv(dividend: Int64, divisor: Int64): Int64 =
