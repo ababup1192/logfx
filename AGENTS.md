@@ -47,6 +47,10 @@ nextcms（Flix 製のヘッドレス CMS。非公開のリポジトリなので�
 - **実験フラグ（`--Xsubeffecting=lambdas` など）込みでしか通らないコードを書かない。**
   利用側は素の flix で取り込む。純粋なラムダを `\ IO` の所に渡す時は `checked_ecast` を書く
 - **release の前に `make consume` を通す。** 型検査とテストが緑でも取り込めない事がある
+- **`docs/release-notes/v<version>.md` を書いてから release する**（無いと `make release` が止まる）。
+  README が「`0.x` の minor は release note を読め」と書いているので、読む物が要る
+- **push してから `make release`。** tag はリモートの HEAD に付くので、未 push のコミットがあると
+  版だけ進んだ release ができる（0.2.1 で実際に踏んだ）
 - **版を上げたら `examples/*/flix.toml` の logfx の版も上げる。** ずれていると `ci/example.sh`
   が止まる（例が、どの release にも無い API を指したままになる為）
 - **README の最初のコード片は `examples/quickstart` の写し。** 直す時は両方。
@@ -92,6 +96,7 @@ make release  # GitHub の release に .fpkg と flix.toml を付ける
 | `src/Logfx/Sink.flix` | Sink（`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich` / `tee` / `fallback`） |
 | `test/TestLogfx.flix` | 表駆動のテスト |
 | `examples/` | 利用側から書いたコード。`quickstart`（README の最初の塊）と `server`（組み込み一式） |
+| `docs/release-notes/` | 版ごとの release note（`make release` が `--notes-file` で使う） |
 | `ci/` | 取り込み側から見る smoke（`consume.sh` と捨てプロジェクトの `consumer/`）、`example.sh`、リファレンスの `doc.sh` |
 | `.github/workflows/ci.yml` | push ごとの `make check` / `make test` / 取り込み / `make examples` |
 | `.github/workflows/pages.yml` | tag を打った時だけ、`make doc` の結果を GitHub Pages に置く |

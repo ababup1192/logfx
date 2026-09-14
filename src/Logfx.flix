@@ -27,6 +27,7 @@ pub eff Logfx {
 }
 
 mod Logfx {
+    import java.lang.StackTraceElement
     import java.lang.Throwable
 
     use Util.Json.Json
@@ -261,12 +262,18 @@ mod Logfx {
     /// - message: trimmed to 200 characters, with everything from `"Detail:"` onwards dropped. Empty when null.
     /// - cause: `getCause` followed up to 3 links, each rendered `"type: message"` and joined with `" <- "`.
     ///   Absent when there is no cause.
-    /// - stacktrace: the Flix frames only (class name containing `Def$` or `Clo$`), at most 8, joined with `" | "`.
+    /// - stacktrace: the Flix frames only (class name containing `Def$` or `Clo$`), at most 8,
+    ///   each written `class.method(file:line)` and joined with `" | "`.
     ///
     /// WhyNot: the message is not printed whole, because PostgreSQL puts the offending row
     /// (a key, an email address) after `Detail:`.
     /// WhyNot: not every frame, because `dev.flix.runtime` and JDK frames do not say where you are,
     /// and on the day the database falls over they pile up 3 KB per line.
+    /// WhyNot: not the frame's own `toString`, which spells the file as the absolute path it was
+    /// compiled from. The build machine's directory layout would then ride on every error line,
+    /// and it is the same line that multiplies on the day the database falls over.
+    /// WhyNot: no frame without a line number. `Clo$…invoke` frames carry the file but not the line,
+    /// so they cost bytes without saying where you are.
     /// WhyNot: not the outermost exception alone. JDBC and HTTP both wrap the real reason
     /// (connection refused, a certificate), so the outside leaves you with "a SQLException happened"
     /// and not one line of cause.
@@ -298,15 +305,25 @@ mod Logfx {
     def shortMessage(message: String): String =
         String.splitOn(substr = "Detail:", message) |> List.head |> Option.getWithDefault("") |> String.trim |> String.takeLeft(200)
 
-    /// The Flix frames only, at most 8.
+    /// The Flix frames that know their line, at most 8.
     def flixFrames(error: Throwable): List[String] \ IO =
         Array.toList(error.getStackTrace())
             |> List.filter(frame -> {
                 let className: String = frame.getClassName();
-                String.contains(substr = "Def$", className) or String.contains(substr = "Clo$", className)
+                (String.contains(substr = "Def$", className) or String.contains(substr = "Clo$", className))
+                    and frame.getLineNumber() > 0
             })
             |> List.take(8)
-            |> List.map(frame -> frame.toString())
+            |> List.map(frameText)
+
+    /// One frame as `class.method(file:line)`.
+    def frameText(frame: StackTraceElement): String \ IO =
+        "${frame.getClassName()}.${frame.getMethodName()}(${fileName(frame.getFileName())}:${frame.getLineNumber()})"
+
+    /// The last segment of a path. Empty when null.
+    def fileName(path: String): String =
+        if (Object.isNull(path)) ""
+        else String.splitOn(substr = "/", path) |> List.last |> Option.getWithDefault(path)
 
     // ---- span と handler ----
 

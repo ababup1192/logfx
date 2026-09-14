@@ -38,10 +38,15 @@ pkg:
 # flix.toml の version とずれると解決に失敗する。
 VERSION = $(shell sed -n 's/^version *= *"\(.*\)"/\1/p' flix.toml)
 
+# WhyNot: notes を版の文字列だけにしない。README は「0.x の minor は壊す事があるので
+# release note を読め」と書いている。読む物が「logfx 0.3.0」の 1 行だと、その約束が空になる。
+NOTES = docs/release-notes/v$(VERSION).md
+
 release: pkg
+	@test -f $(NOTES) || { echo "$(NOTES) が無い。この版で何が変わったかを書いてから release する"; exit 1; }
 	gh release create v$(VERSION) \
 		$(PKG_DIR)/artifact/logfx.fpkg $(PKG_DIR)/artifact/flix.toml \
-		--title "v$(VERSION)" --notes "logfx $(VERSION)"
+		--title "v$(VERSION)" --notes-file $(NOTES)
 
 clean:
 	rm -rf build

@@ -400,6 +400,16 @@ mod TestLogfx {
             expected = None,
             Fields.empty() |> Logfx.exception(checked_cast(new RuntimeException("x"))) |> Map.get("exception.cause"))
 
+    /// frame の形は クラス.メソッド(ファイル名:行)。パスは入らず、行番号の無い frame は出ない。
+    @Test
+    def testExceptionFrameShape(): Unit \ IO + Assert =
+        let (_, _, lines) = exceptionTriple(thrownDeep());
+        Assert.assertEq(
+            expected = (true, false, false),
+            (lines |> List.forAll(line -> String.isMatch(regex = ".+\\(TestLogfx\\.flix:[0-9]+\\)", line)),
+             lines |> List.exists(line -> String.contains(substr = "/", line)),
+             lines |> List.exists(line -> String.contains(substr = ":-1)", line) or String.contains(substr = ":0)", line))))
+
     /// stacktrace の区切りは制御文字でない（toJsonLine が制御文字を落とすので、改行だと frame が全部繋がる）。
     @Test
     def testExceptionStacktraceSurvivesJsonLine(): Unit \ IO + Assert =

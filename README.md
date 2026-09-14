@@ -39,14 +39,14 @@ Add it to `[dependencies]` in your `flix.toml`. There are no Maven dependencies 
 
 ```toml
 [dependencies]
-"github:ababup1192/logfx" = { version = "0.2.1", security = "unrestricted" }
+"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }
 ```
 
 It is built with **Flix 0.75.3** and needs no experimental compiler flags.
 
 `security = "unrestricted"` is required because `Logfx.exception` calls into
 `java.lang.Throwable` (class name, message, cause chain, stack frames). The short form
-(`= "0.2.1"`) is rejected by Flix for a package that uses Java interop.
+(`= "0.3.0"`) is rejected by Flix for a package that uses Java interop.
 
 ## What you get
 
@@ -57,7 +57,7 @@ The table below is the map; the reference is the territory.
 | | |
 |---|---|
 | `Logfx` | The effect. Two operations: `emit` and `enabled` |
-| `Logfx.trace` … `Logfx.fatal` | Emit one line. Fields come last, so they pipe |
+| `Logfx.trace` … `Logfx.fatal` | Emit one line. Fields come last, so they pipe. A line with no fields still passes `Logfx.Fields.empty()` — there is no message-only form |
 | `Logfx.traceWith` … `Logfx.fatalWith` | Same, but the fields are built only if the severity is enabled |
 | `Logfx.Fields` | Field builder: `str` / `int` / `float` / `bool` / `strs` / `obj` / `opt` / `value` / `merge`. `int` takes an `Int64`, so pass an `Int32` through `Int32.toInt64` |
 | `Logfx.withFields` | A scope (span). Every line emitted inside it carries the fields |
@@ -98,6 +98,10 @@ def minSeverity(): Logfx.Severity \ IO =
     if (Object.isNull(text)) Logfx.Severity.Info
     else Logfx.parseSeverity(text) |> Option.getWithDefault(Logfx.Severity.Info)
 ```
+
+Your own functions take `\ Logfx` and nothing more. `IO` shows up only because the work itself
+does it — or because you called `Logfx.exception`, which reads a `Throwable`. A function that only
+logs is `\ Logfx` alone, and writing `\ Logfx + IO` there is rejected with `Unused effect: 'IO'`.
 
 **`runWith` goes inside the `spawn`, not around it.** `Logfx` is an effect, and an effect
 handler does not cross a thread — performing `Logfx.info` inside a `spawn` that is merely
@@ -181,7 +185,7 @@ is deliberate, and there is no flag to turn it off:
 | Every string in the fields | Control characters are stripped. JSON escaping would keep a newline from splitting the line, but a terminal escape sequence passes through and can forge one |
 | `exception.message` | Cut to 200 characters, and everything from `"Detail:"` onwards is dropped — PostgreSQL puts the offending row (a key, an email address) there |
 | `exception.cause` | `getCause` is followed 3 links deep. Enough to reach the real reason, and it stops on a cause that cycles |
-| `exception.stacktrace` | The Flix frames only (8 at most). `dev.flix.runtime` and JDK frames do not say where you are, and on the day the database falls over they pile up 3 KB per line |
+| `exception.stacktrace` | The Flix frames only (8 at most), written `class.method(file:line)`. `dev.flix.runtime` and JDK frames do not say where you are; a frame with no line number does not either; and the file is its name, not the absolute path it was compiled from — otherwise the build machine's directory layout rides on every error line, which is the line that multiplies on the day the database falls over |
 | `NaN`, `Infinity` | Written as `null`. JSON cannot spell them, and `0` would hide that a measurement broke |
 | Integers | Kept as `Int64`. A quiet `2147483647` is worse than a number that is obviously missing |
 
@@ -312,14 +316,14 @@ def main(): Unit \ IO =
 
 ```toml
 [dependencies]
-"github:ababup1192/logfx" = { version = "0.2.1", security = "unrestricted" }
+"github:ababup1192/logfx" = { version = "0.3.0", security = "unrestricted" }
 ```
 
 **Flix 0.75.3** で作っていて、実験フラグは要らない。
 
 `security = "unrestricted"` が要るのは、`Logfx.exception` が `java.lang.Throwable`
 （クラス名・message・cause の連鎖・stack frame）を触るため。版だけを書く短い形
-（`= "0.2.1"`）だと Flix が取り込みを断る。
+（`= "0.3.0"`）だと Flix が取り込みを断る。
 
 ## 持っている物
 
@@ -329,7 +333,7 @@ def main(): Unit \ IO =
 | | |
 |---|---|
 | `Logfx` | effect。op は `emit` と `enabled` の 2 つ |
-| `Logfx.trace` … `Logfx.fatal` | 1 行出す。fields は最後（パイプで受ける） |
+| `Logfx.trace` … `Logfx.fatal` | 1 行出す。fields は最後（パイプで受ける）。fields の無い行も `Logfx.Fields.empty()` を渡す（message だけの形は無い） |
 | `Logfx.traceWith` … `Logfx.fatalWith` | 同じだが、その段が有効な時だけ fields を組み立てる |
 | `Logfx.Fields` | フィールドのビルダー。`str` / `int` / `float` / `bool` / `strs` / `obj` / `opt` / `value` / `merge`。`int` は `Int64` なので、`Int32` は `Int32.toInt64` で渡す |
 | `Logfx.withFields` | 入れ子の文脈（span）。中で出る行すべてにフィールドが付く |
@@ -370,6 +374,10 @@ def minSeverity(): Logfx.Severity \ IO =
     if (Object.isNull(text)) Logfx.Severity.Info
     else Logfx.parseSeverity(text) |> Option.getWithDefault(Logfx.Severity.Info)
 ```
+
+利用側の関数に付く効果は `\ Logfx` だけ。`IO` が増えるのは、仕事の方が触るか、`Throwable` を読む
+`Logfx.exception` を呼んだ時。ログしかしない関数は `\ Logfx` のみで、`\ Logfx + IO` と書くと
+`Unused effect: 'IO'` で断られる。
 
 **`runWith` は `spawn` の内側に置く。外側ではない。** `Logfx` は effect で、effect の handler は
 スレッドを越えない。handler の中に置いただけの `spawn` の中で `Logfx.info` を呼ぶとコンパイルが落ちる:
@@ -446,7 +454,7 @@ let sink = Logfx.Sink.fallback(loki, toStderr);
 | fields の全文字列 | 制御文字を落とす。JSON の escape でも改行で行は割れないが、端末のエスケープシーケンスは通り、偽の行を作れる |
 | `exception.message` | 200 字で切り、`"Detail:"` 以降を落とす。PostgreSQL がそこに行の値（鍵・メールアドレス）を入れるため |
 | `exception.cause` | `getCause` を 3 段まで。本当の理由に届く深さで、循環した cause でも止まる |
-| `exception.stacktrace` | Flix の frame だけ 8 つ。`dev.flix.runtime` や JDK の frame は場所を教えず、DB が落ちた日に 1 行 3 KB 積もる |
+| `exception.stacktrace` | Flix の frame だけ 8 つ。形は `クラス.メソッド(ファイル名:行)`。`dev.flix.runtime` や JDK の frame は場所を教えず、行番号の無い frame も同じ。ファイルは名前だけで、コンパイル時の絶対パスは出さない（ビルドマシンのディレクトリ構成が全エラー行に乗る。DB が落ちた日に一番増えるのがその行） |
 | `NaN` / 無限大 | `null` で出す。JSON に書き方が無く、`0` にすると計測が壊れた事が消える |
 | 整数 | `Int64` のまま。静かに読める `2147483647` の方が、明らかに欠けている数より悪い |
 
