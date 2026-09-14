@@ -40,12 +40,12 @@ That is one line; it is wrapped here so you can read it.
 
 | | |
 |---|---|
-| Install | `"github:ababup1192/logfx" = { version = "0.3.1", security = "unrestricted" }` under `[dependencies]` |
+| Install | `"github:ababup1192/logfx" = { version = "0.3.2", security = "unrestricted" }` under `[dependencies]` |
 | API reference | <https://ababup1192.github.io/logfx/Logfx.html> |
 | Runnable examples | [`examples/`](examples) — the block above is [`examples/quickstart`](examples/quickstart), and CI compiles it |
 
 `security = "unrestricted"` is required because `Logfx.exception` reads a `java.lang.Throwable`.
-The short form (`= "0.3.1"`) is rejected by Flix for a package that uses Java interop.
+The short form (`= "0.3.2"`) is rejected by Flix for a package that uses Java interop.
 
 ## What you can do with it
 
@@ -366,10 +366,10 @@ why the fields of a `debugWith` go behind a thunk. And **`Logfx.exception` costs
 ordinary lines** — walking a stack trace is not cheap, so it belongs on the failure, not on the
 request.
 
-This is not the number logfx is best at. zap, zerolog and pino write a comparable line in a few
-hundred nanoseconds; if throughput is what decides your choice, they are the answer and this is not.
-Most of what is left here is building the `Fields` map, and that map is what lets you write your own
-merge rule — the cost and the capability are the same decision.
+This is not the number logfx is best at, and there is nothing here to compare it against: a
+measurement of some other library on some other machine is not evidence, so this repository does not
+carry one. Most of what is left is building the `Fields` map, and that map is what lets you write
+your own merge rule — the cost and the capability are the same decision.
 
 ## Design
 
@@ -478,12 +478,12 @@ def main(): Unit \ IO =
 
 | | |
 |---|---|
-| 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.1", security = "unrestricted" }` |
+| 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.2", security = "unrestricted" }` |
 | API リファレンス | <https://ababup1192.github.io/logfx/Logfx.html> |
 | 動く例 | [`examples/`](examples) — 上の塊がそのまま [`examples/quickstart`](examples/quickstart) で、CI がコンパイルしている |
 
 `security = "unrestricted"` が要るのは、`Logfx.exception` が `java.lang.Throwable` を読むため。
-バージョンだけを書く短い形（`= "0.3.1"`）だと Flix が取り込みを断る。
+バージョンだけを書く短い形（`= "0.3.2"`）だと Flix が取り込みを断る。
 
 ## 何ができるか
 
@@ -790,8 +790,8 @@ fields の無い行も `Logfx.Fields.empty()` を渡す。message だけの形�
 fields を thunk の後ろに置く理由。そして **`Logfx.exception` は普通の行 4 本分より高い**。
 stack trace を辿るのは安くないので、失敗の行に付ける物であって、リクエストの行に付ける物ではない。
 
-ここは logfx が一番得意な所ではない。zap・zerolog・pino は同じような行を数百 ns で書く。
-スループットで選ぶならそちらが答えで、これは違う。残っているコストの大半は `Fields` の
+ここは logfx が一番得意な所ではない。そして比べる相手は置かない。別のライブラリを別の機械で
+測った数字は根拠にならないので、このリポジトリは持たない。残っているコストの大半は `Fields` の
 `Map` を組む所で、その `Map` は独自のマージ規則を書ける理由でもある。**値段と自由は同じ判断の裏表。**
 
 ## 設計
