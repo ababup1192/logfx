@@ -1,6 +1,6 @@
 [package]
 name        = "logfx"
-description = "Structured logging for Flix: a Log effect, sinks as plain values, nested field scopes, and OpenTelemetry-compatible key names. No dependencies beyond the JDK."
+description = "Structured logging for Flix: a Logfx effect, sinks as plain values, nested field scopes, and OpenTelemetry-compatible key names. No dependencies beyond the JDK."
 version     = "0.3.2"
 flix        = "0.75.3"
 authors     = ["ababup1192 <ababup1192@gmail.com>"]
