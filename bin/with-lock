@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# 名前ごとの排他ロックを取ってからコマンドを実行する。
+#
+# WhyNot: flock を使わない。macOS に入っていない（util-linux）。shlock は BSD 標準で、
+# ロックファイルに書いた PID が生きているかを見るので、-9 で落ちた後の取り残しも自分で回収する。
+# WhyNot: 待ち合わせを呼ぶ側で書かない。pgrep で待つ形は、待っている自分のコマンドラインが
+# パターンに一致して永久に待つ（実際に踏み、pkill で他の作業を巻き添えにした）。
+set -u
+
+name="$1"
+shift
+
+lock="${TMPDIR:-/tmp}/flix_graphql_hello.${name}.lock"
+waited=0
+limit="${WITH_LOCK_TIMEOUT:-3600}"
+
+until /usr/bin/shlock -f "$lock" -p $$; do
+    if [ "$waited" -eq 0 ]; then
+        echo "with-lock: ${name} が使用中。空くまで待ちます（${lock}）" >&2
+    fi
+    sleep 2
+    waited=$((waited + 2))
+    if [ "$waited" -ge "$limit" ]; then
+        echo "with-lock: ${name} が ${limit} 秒空きませんでした。${lock} を確かめてください" >&2
+        exit 124
+    fi
+done
+
+# WhyNot: ロックを消す trap を張らない。exec で PID を引き継ぐので、ロックファイルの PID は
+# そのまま走るプロセスを指す。終われば PID が死に、次に待つ側の shlock が回収する。
+exec "$@"

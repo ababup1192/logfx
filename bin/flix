@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# flix ラッパ。コンパイラ jar は flix_game_engine の devbox profile から借りる。
+# WhyNot: flix.nix の flix コマンドを直に exec しないのは、それが自分専用の JRE を
+# 同梱していて手元の jdk と別マイナー版になるため。jar だけ借り、JRE は手元に固定する。
+ENGINE_ROOT="$HOME/Desktop/flix_game_engine"
+
+# CI などで jar を直接指す時は FLIX_JAR を環境変数で渡す（release の flix.jar）
+FLIX_JAR="${FLIX_JAR:-}"
+if [ -n "$FLIX_JAR" ] && [ ! -f "$FLIX_JAR" ]; then FLIX_JAR=""; fi
+real="$(readlink -f "$ENGINE_ROOT/.devbox/nix/profile/default/bin/flix" 2>/dev/null)"
+if [ -z "$FLIX_JAR" ]; then
+    case "$real" in
+        /nix/store/*)
+            jar="$(dirname "$(dirname "$real")")/share/java/flix/flix.jar"
+            if [ -f "$jar" ]; then FLIX_JAR="$jar"; fi
+            ;;
+    esac
+fi
+
+if [ -z "$FLIX_JAR" ]; then
+    echo "flix.jar が見つかりません。$ENGINE_ROOT で devbox の profile を作ってください。" >&2
+    exit 127
+fi
+
+JAVA_CMD="java"
+if ! java -version >/dev/null 2>&1; then
+    JAVA_CMD="$ENGINE_ROOT/.devbox/nix/profile/default/bin/java"
+fi
+if ! "$JAVA_CMD" -version >/dev/null 2>&1; then
+    echo "java が見つかりません。PATH に JDK を通してください。" >&2
+    exit 127
+fi
+
+# WhyNot: --Xsubeffecting=lambdas を外さないのは、これが無いと effect 無しのラムダを
+# `\ IO` の関数型に渡せず、GraphQL の純粋なリゾルバ全部に checked_ecast が要るため。
+# experimental なフラグなので、消えたら checked_ecast を規約に戻す。
+# WhyNot: GitHub の依存（github:ababup1192/sqlfx）を認証なしで解決しない。CI の runner は
+# IP を共有していて、認証なしの API 制限にすぐ当たり、ビルドが依存の解決で落ちる。
+# WhyNot: コンパイラを 2 つ同時に走らせない。1 回の型検査が 3 GB 使うので、並行作業で
+# 2 本重なると GC で遅くなるか OOM で落ちる。指示で守るのではなくここで順番待ちにする
+# （FLIX_NO_LOCK=1 で外せる）。
+LOCK_CMD=()
+if [ -z "${FLIX_NO_LOCK:-}" ] && [ -x "$(dirname "$0")/with-lock" ]; then
+    LOCK_CMD=("$(dirname "$0")/with-lock" compiler)
+fi
+
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@" --github-token "$GITHUB_TOKEN" --Xsubeffecting=lambdas
+fi
+
+exec "${LOCK_CMD[@]}" "$JAVA_CMD" -Xss32m -jar "$FLIX_JAR" "$@" --Xsubeffecting=lambdas
