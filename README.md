@@ -39,14 +39,14 @@ Add it to `[dependencies]` in your `flix.toml`. There are no Maven dependencies 
 
 ```toml
 [dependencies]
-"github:ababup1192/logfx" = { version = "0.2.0", security = "unrestricted" }
+"github:ababup1192/logfx" = { version = "0.2.1", security = "unrestricted" }
 ```
 
 It is built with **Flix 0.75.3** and needs no experimental compiler flags.
 
 `security = "unrestricted"` is required because `Logfx.exception` calls into
 `java.lang.Throwable` (class name, message, cause chain, stack frames). The short form
-(`= "0.2.0"`) is rejected by Flix for a package that uses Java interop.
+(`= "0.2.1"`) is rejected by Flix for a package that uses Java interop.
 
 ## What you get
 
@@ -312,14 +312,14 @@ def main(): Unit \ IO =
 
 ```toml
 [dependencies]
-"github:ababup1192/logfx" = { version = "0.2.0", security = "unrestricted" }
+"github:ababup1192/logfx" = { version = "0.2.1", security = "unrestricted" }
 ```
 
 **Flix 0.75.3** で作っていて、実験フラグは要らない。
 
 `security = "unrestricted"` が要るのは、`Logfx.exception` が `java.lang.Throwable`
 （クラス名・message・cause の連鎖・stack frame）を触るため。版だけを書く短い形
-（`= "0.2.0"`）だと Flix が取り込みを断る。
+（`= "0.2.1"`）だと Flix が取り込みを断る。
 
 ## 持っている物
 
