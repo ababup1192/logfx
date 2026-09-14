@@ -229,6 +229,61 @@ mod TestLogfx {
         });
         Assert.assertEq(expected = 42, result)
 
+    // ---- enabled（段の判定）----
+
+    /// runWithMin は min より軽い段で enabled が false になる（min は残す）。
+    @Test
+    def testRunWithMinAnswersEnabled(): Unit \ IO + Assert =
+        let answers = Logfx.runWith(Logfx.Sink.silent(), () ->
+            (Logfx.enabled(Severity.Trace), Logfx.enabled(Severity.Fatal)));
+        let limited = Logfx.runWithMin(Severity.Warn, Logfx.Sink.silent(), () ->
+            (Logfx.enabled(Severity.Debug), Logfx.enabled(Severity.Warn), Logfx.enabled(Severity.Error)));
+        Assert.assertEq(expected = ((true, true), (false, true, true)), (answers, limited))
+
+    /// runWithMin で落ちる段は sink に届かない。
+    @Test
+    def testRunWithMinDropsLightLines(): Unit \ IO + Assert =
+        let sink = Ref.fresh(Static, Nil);
+        Logfx.runWithMin(Severity.Warn, Logfx.Sink.collect(sink), () -> emitAll());
+        Assert.assertEq(expected = List#{(Severity.Warn, "w", Nil), (Severity.Error, "e", Nil), (Severity.Fatal, "f", Nil)}, collected(sink))
+
+    /// infoWith は落ちる段では fields を組み立てない。残る段では組み立てて emit する。
+    @Test
+    def testLogWithSkipsBuildingFields(): Unit \ IO + Assert =
+        let built = Ref.fresh(Static, 0);
+        let sink = Ref.fresh(Static, Nil);
+        Logfx.runWithMin(Severity.Warn, Logfx.Sink.collect(sink), () -> {
+            Logfx.infoWith("dropped", () -> { Ref.put(Ref.get(built) + 1, built); Fields.empty() |> Fields.str("k", "v") });
+            Logfx.warnWith("kept", () -> { Ref.put(Ref.get(built) + 1, built); Fields.empty() |> Fields.str("k", "v") })
+        });
+        Assert.assertEq(
+            expected = (1, List#{(Severity.Warn, "kept", List#{("k", Logfx.Value.Str("v"))})}),
+            (Ref.get(built), collected(sink)))
+
+    /// withFields の中でも段の判定は外の handler に届く。残る行には span の fields が付く。
+    @Test
+    def testWithFieldsForwardsEnabled(): Unit \ IO + Assert =
+        let sink = Ref.fresh(Static, Nil);
+        let span = Fields.empty() |> Fields.str("request.id", "r1");
+        Logfx.runWithMin(Severity.Warn, Logfx.Sink.collect(sink), () -> Logfx.withFields(span, () -> {
+            let seen = Logfx.enabled(Severity.Debug);
+            Fields.empty() |> Fields.bool("debug.enabled", seen) |> Logfx.warn("kept");
+            Fields.empty() |> Logfx.info("dropped")
+        }));
+        Assert.assertEq(
+            expected = List#{(Severity.Warn, "kept", List#{("debug.enabled", Logfx.Value.Bool(false)), ("request.id", Logfx.Value.Str("r1"))})},
+            collected(sink))
+
+    /// runWithList は全段を集める（テストで落ちる段を気にしなくてよい）。
+    @Test
+    def testRunWithListEnablesEverySeverity(): Unit \ Assert =
+        let (answer, records) = Logfx.runWithList(() -> {
+            let seen = Logfx.enabled(Severity.Trace);
+            Logfx.traceWith("t", () -> Fields.empty());
+            seen
+        });
+        Assert.assertEq(expected = (true, List#{(Severity.Trace, "t", Nil)}), (answer, records |> List.map(toTuple)))
+
     // ---- exception ----
 
     /// exception の 3 フィールドの値を (type, message, stacktrace の行) にする。

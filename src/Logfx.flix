@@ -11,10 +11,17 @@
 //
 
 ///
-/// ログの effect。emit で 1 行を出す。
+/// ログの effect。emit で 1 行を出し、enabled でその段を出すかを先に訊く。
+///
+/// WhyNot: enabled を後から足さない。eff が pub なので handler は誰でも書ける。
+/// op が 1 つ増えると、自分で handler を書いた利用者が全員壊れる。利用者が 0 の
+/// 0.2.0 で決め切る。
 ///
 pub eff Logfx {
+    /// 1 行を出す。
     def emit(record: Logfx.Record): Unit
+    /// この段を出すか。false なら呼ぶ側は fields の組み立てごと飛ばしてよい。
+    def enabled(severity: Logfx.Severity): Bool
 }
 
 mod Logfx {
@@ -121,29 +128,69 @@ mod Logfx {
 
     // ---- 呼ぶ側 ----
 
+    ///
+    /// 段を指定して 1 行出す。enabled が false なら何もしない。
+    ///
+    pub def log(severity: Severity, message: String, fields: Fields): Unit \ Logfx =
+        if (Logfx.enabled(severity)) Logfx.emit({ severity = severity, message = message, fields = fields }) else ()
+
+    ///
+    /// 段を指定して 1 行出す。fields は enabled が true の時だけ組み立てる。
+    ///
+    /// WhyNot: log(severity, message, fields) で済ませない。fields は呼ぶ側で既に
+    /// 出来上がっているので、捨てる行でも Map.insert が全部走る。Go の slog が
+    /// Enabled() を別に持つのと同じ理由で、組み立てを thunk の後ろに置く口が要る。
+    ///
+    pub def logWith(severity: Severity, message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
+        if (Logfx.enabled(severity)) Logfx.emit({ severity = severity, message = message, fields = build() }) else ()
+
     /// Trace の行を出す。fields は最後（パイプで受ける）。
     pub def trace(message: String, fields: Fields): Unit \ Logfx =
-        Logfx.emit({ severity = Severity.Trace, message = message, fields = fields })
+        log(Severity.Trace, message, fields)
 
     /// Debug の行を出す。
     pub def debug(message: String, fields: Fields): Unit \ Logfx =
-        Logfx.emit({ severity = Severity.Debug, message = message, fields = fields })
+        log(Severity.Debug, message, fields)
 
     /// Info の行を出す。
     pub def info(message: String, fields: Fields): Unit \ Logfx =
-        Logfx.emit({ severity = Severity.Info, message = message, fields = fields })
+        log(Severity.Info, message, fields)
 
     /// Warn の行を出す。
     pub def warn(message: String, fields: Fields): Unit \ Logfx =
-        Logfx.emit({ severity = Severity.Warn, message = message, fields = fields })
+        log(Severity.Warn, message, fields)
 
     /// Error の行を出す。
     pub def error(message: String, fields: Fields): Unit \ Logfx =
-        Logfx.emit({ severity = Severity.Error, message = message, fields = fields })
+        log(Severity.Error, message, fields)
 
     /// Fatal の行を出す。
     pub def fatal(message: String, fields: Fields): Unit \ Logfx =
-        Logfx.emit({ severity = Severity.Fatal, message = message, fields = fields })
+        log(Severity.Fatal, message, fields)
+
+    /// Trace の行を出す。fields は出す時だけ組み立てる。
+    pub def traceWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
+        logWith(Severity.Trace, message, build)
+
+    /// Debug の行を出す。fields は出す時だけ組み立てる。
+    pub def debugWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
+        logWith(Severity.Debug, message, build)
+
+    /// Info の行を出す。fields は出す時だけ組み立てる。
+    pub def infoWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
+        logWith(Severity.Info, message, build)
+
+    /// Warn の行を出す。fields は出す時だけ組み立てる。
+    pub def warnWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
+        logWith(Severity.Warn, message, build)
+
+    /// Error の行を出す。fields は出す時だけ組み立てる。
+    pub def errorWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
+        logWith(Severity.Error, message, build)
+
+    /// Fatal の行を出す。fields は出す時だけ組み立てる。
+    pub def fatalWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
+        logWith(Severity.Fatal, message, build)
 
     ///
     /// Java の例外を exception.type / exception.message / exception.stacktrace の 3 つに写して fields に足す。
@@ -188,15 +235,25 @@ mod Logfx {
                 Logfx.emit({ severity = record#severity, message = record#message, fields = Map.union(record#fields, fields) });
                 k()
             }
+            def enabled(severity, k) = k(Logfx.enabled(severity))
         }
 
     ///
-    /// スレッドの入口。行を sink に渡す。sink が投げた例外はここで受けて捨てる。
+    /// スレッドの入口。全段を sink に渡す。段で絞るなら runWithMin。
+    ///
+    pub def runWith(sink: Sink, thunk: Unit -> a \ ef): a \ (ef - Logfx) + IO =
+        runWithMin(Severity.Trace, sink, thunk)
+
+    ///
+    /// スレッドの入口。min より軽い行は enabled が false になり、sink に届かない（min は残す）。
     ///
     /// WhyNot: sink の例外を呼ぶ側に届けないのは、effect の操作の時点で thunk の frame は巻き戻されていて呼ぶ側の catch を素通りし、
     /// Tx の後始末が飛ぶため。ログの失敗で業務を落とさない。
     ///
-    pub def runWith(sink: Sink, thunk: Unit -> a \ ef): a \ (ef - Logfx) + IO =
+    /// WhyNot: 段の判定を Sink.minSeverity だけに任せない。sink まで行ってから捨てると、捨てる行でも fields は組み上がっている。
+    /// handler で答えれば logWith / infoWith が組み立てごと飛ばせる。
+    ///
+    pub def runWithMin(min: Severity, sink: Sink, thunk: Unit -> a \ ef): a \ (ef - Logfx) + IO =
         run {
             thunk()
         } with handler Logfx {
@@ -208,6 +265,7 @@ mod Logfx {
                 };
                 k()
             }
+            def enabled(severity, k) = k(Order.greaterEqual(severity, min))
         }
 
     ///
@@ -221,6 +279,7 @@ mod Logfx {
                 let (result, rest) = k();
                 (result, record :: rest)
             }
+            def enabled(_severity, k) = k(true)
         }
 
     // ---- 1 行 JSON ----
