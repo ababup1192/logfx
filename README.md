@@ -110,26 +110,12 @@ as one `BigDecimal`, so `12` comes out as `12.0` — a log backend then types th
 `Fields.int` keeps `Int64` rather than clamping to `Int32`. A number that quietly reads
 `2147483647` is worse than one that is obviously missing.
 
-## Scope, and what this project will not do
+## When this gets archived
 
 This library was extracted from [flix_graphql_hello](https://github.com/ababup1192/flix_graphql_hello),
-a headless CMS written in Flix. It is maintained **only as far as that project needs it**, by one
-person, in their spare time.
-
-- **Feature requests are not accepted.** Bug reports and pull requests are welcome.
-- **One Flix version is supported** — the one in `flix.toml` (currently 0.75.3). When upstream
-  breaks the build, this follows, but no date is promised.
-- **Replies can take weeks.** That is the normal case, not a lapse.
-- **No output backends are added here** (files, syslog, Loki, OTLP). A `Sink` is a one-line
-  function type; write it where you use it.
-- **No global/ambient logger, no configuration file, no log rotation.** The handler is the
-  configuration.
-
-### When this gets archived
-
-If flix_graphql_hello stops using logfx, this repository is archived and the README says so on the
-first line. The last released version keeps working — it is a source package with no Maven
-dependencies, pinned to a Flix release. The harm in an unmaintained library is not that it stopped;
+a headless CMS written in Flix. If that project stops using logfx, this repository is archived and
+the README says so on the first line. The last released version keeps working — it is a source
+package with no Maven dependencies, pinned to a Flix release. The harm in an unmaintained library is not that it stopped;
 it is not knowing whether it stopped. So: that is the condition, written down in advance.
 
 ## Versioning
