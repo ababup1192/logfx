@@ -55,6 +55,12 @@ jobs:
         run: ci/consume.sh local
         env:
           FLIX_JAR: /tmp/flix.jar
+      # WhyNot: examples を consume と別の job にしない。どちらも .fpkg を作る所から始まる
+      # ので、分けると同じビルドを 2 度やるだけになる。
+      - name: examples をビルドして走らせる
+        run: make examples
+        env:
+          FLIX_JAR: /tmp/flix.jar
 
   # tag を打った後だけ。release に置いた .fpkg を、Flix の依存解決ごと通して確かめる
   # （local と違い、GitHub から降りてくる物と security の設定が実際に使われる）。

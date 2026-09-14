@@ -1,0 +1,12 @@
+[package]
+name        = "quickstart"
+description = "README の最初のコード片、そのままの物"
+version     = "0.0.0"
+flix        = "0.75.3"
+authors     = ["ababup1192 <ababup1192@gmail.com>"]
+license     = "Apache-2.0"
+
+[dependencies]
+"github:ababup1192/logfx" = { version = "0.2.0", security = "unrestricted" }
+
+[mvn-dependencies]

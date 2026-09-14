@@ -1,6 +1,6 @@
 //
-// Log: 構造化ログ。呼ぶ側は effect（Log）で行を出し、出力先は値（Sink）で組む。
-// 依存は Value / JsonValue だけで、cms / http / app を知らない。
+// Logfx: 構造化ログ。呼ぶ側は effect（Logfx）で行を出し、出力先は値（Sink）で組む。
+// JDK より外の依存は無く、取り込む側のアプリケーションを何も知らない。
 //
 // - 行は Record（severity / message / fields）。1 行 JSON にするのは Sink.json（toJsonLine）
 // - span は withFields（handler の入れ子。内側が勝つ）
@@ -8,19 +8,21 @@
 // - テストは runWithList
 //
 // WhyNot: ファイル冒頭を /// にしないのは、/// の後に import を置くとコンパイルが落ちるため。
+// WhyNot: /// を日本語で書かない。flix doc が出す物がこのライブラリの公開リファレンスになる。
+// 読者を日本語話者に絞らないために、/// は英語・// の WhyNot は日本語で書く。
 //
 
 ///
-/// ログの effect。emit で 1 行を出し、enabled でその段を出すかを先に訊く。
+/// The logging effect. `emit` writes one line; `enabled` asks whether a severity is worth building.
 ///
-/// WhyNot: enabled を後から足さない。eff が pub なので handler は誰でも書ける。
-/// op が 1 つ増えると、自分で handler を書いた利用者が全員壊れる。利用者が 0 の
-/// 0.2.0 で決め切る。
+/// WhyNot: do not add operations later. The effect is `pub`, so anyone can write a handler,
+/// and one more operation breaks every hand-written one. `enabled` landed in 0.2.0,
+/// while there were no users at all.
 ///
 pub eff Logfx {
-    /// 1 行を出す。
+    /// Writes one line.
     def emit(record: Logfx.Record): Unit
-    /// この段を出すか。false なら呼ぶ側は fields の組み立てごと飛ばしてよい。
+    /// Whether this severity is emitted. On `false` the caller may skip building the fields.
     def enabled(severity: Logfx.Severity): Bool
 }
 
@@ -33,40 +35,42 @@ mod Logfx {
 
 
     ///
-    /// ログのフィールドに入る値。JSON と同じ形。
+    /// What a log field holds. The same shape as JSON.
     ///
-    /// WhyNot: 利用側の JSON の型をそのまま受けない。ログのライブラリが利用側の型に依存すると、
-    /// 依存の向きが逆になって切り出せなくなる。変換は利用側の境界で書く。
+    /// WhyNot: do not take the caller's JSON type. A logging library that depends on the
+    /// caller's types inverts the dependency and cannot be extracted. Convert at your own boundary.
     ///
-    /// WhyNot: トップレベルに Value という名前で置かない。Flix はモジュールを隠せないので、
-    /// 自分の Value を持つ利用側（GraphQL や JSON を扱うコード）と衝突して使えなくなる。
+    /// WhyNot: do not put a type named `Value` at the top level. Flix cannot hide modules,
+    /// so it would collide with the caller's own `Value` (GraphQL, JSON) and make the library unusable.
     ///
     pub enum Value with Eq, ToString {
         /// null
         case Null
         /// true / false
         case Bool(Bool)
-        /// 整数（Int64）
+        /// An integer (`Int64`).
         ///
-        /// WhyNot: Int32 にしない。バイト数や μs の累計は 2 GB を越える。越えた値を黙って丸めると、
-        /// 壊れた事が読む人に伝わらないまま 2147483647 が出る（floatJson が NaN を 0 に倒さないのと同じ理由）。
+        /// WhyNot: not `Int32`. Byte counts and accumulated microseconds pass 2 GB. Clamping them
+        /// silently prints 2147483647 with nothing to tell the reader the value broke
+        /// (the same reason `floatJson` does not turn `NaN` into 0).
         ///
         case Int(Int64)
-        /// 小数
+        /// A float.
         case Float(Float64)
-        /// 文字列
+        /// A string.
         case Str(String)
-        /// 配列
+        /// A list.
         case List(List[Value])
-        /// キー → 値
+        /// Key to value.
         case Obj(Map[String, Value])
     }
 
     ///
-    /// 文字列なら取り出す。
+    /// The string, if it is one.
     ///
-    /// WhyNot: valueAsStr だけを置かない。Sink を書く人はフィールドを見て振り分けるので、
-    /// 1 つだけ pub だと「残りは match しろ」なのか「まだ書いていない」のか読めない。全部の case に 1 つずつ置く。
+    /// WhyNot: do not ship only `valueAsStr`. Whoever writes a sink dispatches on the fields,
+    /// and a single accessor leaves them guessing whether the rest are missing or deliberately
+    /// left to `match`. There is one per case.
     ///
     pub def valueAsStr(value: Value): Option[String] = match value {
         case Value.Str(s) => Some(s)
@@ -74,7 +78,7 @@ mod Logfx {
     }
 
     ///
-    /// 整数なら取り出す。
+    /// The integer, if it is one.
     ///
     pub def valueAsInt(value: Value): Option[Int64] = match value {
         case Value.Int(n) => Some(n)
@@ -82,7 +86,7 @@ mod Logfx {
     }
 
     ///
-    /// 小数なら取り出す。整数は写さない（型が違う事を隠さない）。
+    /// The float, if it is one. An integer is not converted: a difference in type stays visible.
     ///
     pub def valueAsFloat(value: Value): Option[Float64] = match value {
         case Value.Float(x) => Some(x)
@@ -90,7 +94,7 @@ mod Logfx {
     }
 
     ///
-    /// 真偽なら取り出す。
+    /// The boolean, if it is one.
     ///
     pub def valueAsBool(value: Value): Option[Bool] = match value {
         case Value.Bool(b) => Some(b)
@@ -98,7 +102,7 @@ mod Logfx {
     }
 
     ///
-    /// 一覧なら取り出す。
+    /// The list, if it is one.
     ///
     pub def valueAsList(value: Value): Option[List[Value]] = match value {
         case Value.List(items) => Some(items)
@@ -106,7 +110,7 @@ mod Logfx {
     }
 
     ///
-    /// オブジェクトなら取り出す。
+    /// The object, if it is one.
     ///
     pub def valueAsObj(value: Value): Option[Map[String, Value]] = match value {
         case Value.Obj(fields) => Some(fields)
@@ -114,7 +118,7 @@ mod Logfx {
     }
 
     ///
-    /// null か。
+    /// Whether the value is null.
     ///
     pub def valueIsNull(value: Value): Bool = match value {
         case Value.Null => true
@@ -122,13 +126,13 @@ mod Logfx {
     }
 
     ///
-    /// JSON の 1 行にする。
+    /// Renders the value as a JSON fragment.
     ///
     pub def valueToJsonString(value: Value): String =
         Util.Json.toCompactString(valueToJson(value))
 
     ///
-    /// Util.Json の Json へ写す。
+    /// Converts to `Util.Json.Json`.
     ///
     pub def valueToJson(value: Value): Json = match value {
         case Value.Null        => JNull
@@ -141,15 +145,15 @@ mod Logfx {
     }
 
     ///
-    /// WhyNot: NaN と無限大を 0 に倒さない。計測の値が壊れた事が読んだ人に伝わらなくなる。
-    /// JSON に書ける表現が無いので null にする。
+    /// WhyNot: `NaN` and the infinities are not turned into 0. That would hide from the reader
+    /// that a measurement broke. JSON has no way to write them, so they become null.
     ///
     def floatJson(x: Float64): Json =
         if (Float64.isNan(x) or Float64.isInfinite(x)) JNull
         else BigDecimal.fromString(ToString.toString(x)) |> Option.map(JNumber) |> Option.getWithDefault(JNull)
 
     ///
-    /// 行の重さ。Trace < Debug < Info < Warn < Error < Fatal。
+    /// How heavy a line is. Trace < Debug < Info < Warn < Error < Fatal.
     ///
     pub enum Severity with Eq, Order, ToString {
         case Trace
@@ -161,104 +165,115 @@ mod Logfx {
     }
 
     ///
-    /// 行に付く属性。キーは OTel の semantic conventions の名前（http.request.method など）。
+    /// The attributes on a line. Keys follow the OpenTelemetry semantic conventions
+    /// (`http.request.method`, and so on).
     ///
-    /// WhyNot: 自前の enum でなく Value を使うのは、JSON にする所で変換が要らず、ライブラリとして切り出す時に差し替える所が 1 か所で済むため。
+    /// WhyNot: `Value` rather than an enum of its own, so rendering JSON needs no conversion
+    /// and there is one place to change when the representation moves.
     ///
     pub type alias Fields = Map[String, Value]
 
     ///
-    /// ログの 1 行。
+    /// One log line.
     ///
-    /// - severity: 重さ
-    /// - message: 人が読む短い文
-    /// - fields: 属性
+    /// - severity: how heavy the line is
+    /// - message: a short sentence for a human
+    /// - fields: the attributes
     ///
     pub type alias Record = { severity = Severity, message = String, fields = Fields }
 
     ///
-    /// 出力先。Record を受けて書く関数。slog の Handler と同じ役目で、値なのでスレッドを跨げる。
+    /// Where lines go: a function that takes a `Record` and writes it. The same role as
+    /// slog's Handler, and a plain value, so it crosses threads.
     ///
     pub type alias Sink = Record -> Unit \ IO
 
     // ---- 呼ぶ側 ----
 
     ///
-    /// 段を指定して 1 行出す。enabled が false なら何もしない。
+    /// Emits one line at the given severity. Does nothing when `enabled` answers false.
     ///
     pub def log(severity: Severity, message: String, fields: Fields): Unit \ Logfx =
         if (Logfx.enabled(severity)) Logfx.emit({ severity = severity, message = message, fields = fields }) else ()
 
     ///
-    /// 段を指定して 1 行出す。fields は enabled が true の時だけ組み立てる。
+    /// Emits one line at the given severity. The fields are built only when `enabled` answers true.
     ///
-    /// WhyNot: log(severity, message, fields) で済ませない。fields は呼ぶ側で既に
-    /// 出来上がっているので、捨てる行でも Map.insert が全部走る。Go の slog が
-    /// Enabled() を別に持つのと同じ理由で、組み立てを thunk の後ろに置く口が要る。
+    /// WhyNot: `log(severity, message, fields)` is not enough. There the fields are already built
+    /// at the call site, so every `Map.insert` runs even for a line that is dropped. The same reason
+    /// Go's slog has a separate `Enabled()`: building has to go behind a thunk.
     ///
     pub def logWith(severity: Severity, message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
         if (Logfx.enabled(severity)) Logfx.emit({ severity = severity, message = message, fields = build() }) else ()
 
-    /// Trace の行を出す。fields は最後（パイプで受ける）。
+    /// Emits a Trace line. The fields come last, so they pipe.
     pub def trace(message: String, fields: Fields): Unit \ Logfx =
         log(Severity.Trace, message, fields)
 
-    /// Debug の行を出す。
+    /// Emits a Debug line.
     pub def debug(message: String, fields: Fields): Unit \ Logfx =
         log(Severity.Debug, message, fields)
 
-    /// Info の行を出す。
+    /// Emits an Info line.
     pub def info(message: String, fields: Fields): Unit \ Logfx =
         log(Severity.Info, message, fields)
 
-    /// Warn の行を出す。
+    /// Emits a Warn line.
     pub def warn(message: String, fields: Fields): Unit \ Logfx =
         log(Severity.Warn, message, fields)
 
-    /// Error の行を出す。
+    /// Emits an Error line.
     pub def error(message: String, fields: Fields): Unit \ Logfx =
         log(Severity.Error, message, fields)
 
-    /// Fatal の行を出す。
+    /// Emits a Fatal line.
     pub def fatal(message: String, fields: Fields): Unit \ Logfx =
         log(Severity.Fatal, message, fields)
 
-    /// Trace の行を出す。fields は出す時だけ組み立てる。
+    /// Emits a Trace line. The fields are built only if the line is emitted.
     pub def traceWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
         logWith(Severity.Trace, message, build)
 
-    /// Debug の行を出す。fields は出す時だけ組み立てる。
+    /// Emits a Debug line. The fields are built only if the line is emitted.
     pub def debugWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
         logWith(Severity.Debug, message, build)
 
-    /// Info の行を出す。fields は出す時だけ組み立てる。
+    /// Emits an Info line. The fields are built only if the line is emitted.
     pub def infoWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
         logWith(Severity.Info, message, build)
 
-    /// Warn の行を出す。fields は出す時だけ組み立てる。
+    /// Emits a Warn line. The fields are built only if the line is emitted.
     pub def warnWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
         logWith(Severity.Warn, message, build)
 
-    /// Error の行を出す。fields は出す時だけ組み立てる。
+    /// Emits an Error line. The fields are built only if the line is emitted.
     pub def errorWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
         logWith(Severity.Error, message, build)
 
-    /// Fatal の行を出す。fields は出す時だけ組み立てる。
+    /// Emits a Fatal line. The fields are built only if the line is emitted.
     pub def fatalWith(message: String, build: Unit -> Fields \ ef): Unit \ ef + Logfx =
         logWith(Severity.Fatal, message, build)
 
     ///
-    /// Java の例外を exception.type / exception.message / exception.cause / exception.stacktrace に写して fields に足す。
-    /// message は 200 字で切り、"Detail:" 以降を落とす。null なら空。
-    /// cause は getCause を 3 段まで辿って "型: message" を " <- " で繋いだ物。cause が無ければ付かない。
-    /// stacktrace は Flix の frame（クラス名に `Def$` か `Clo$` を含む物）だけを 8 つ、" | " 区切り。
+    /// Adds a Java exception to the fields as `exception.type` / `exception.message` /
+    /// `exception.cause` / `exception.stacktrace`.
     ///
-    /// WhyNot: message を丸ごと出さないのは、PG のエラーが Detail: に行の値（鍵やメールアドレス）を入れるため。
-    /// WhyNot: frame を全部出さないのは、dev.flix.runtime や JDK の frame は読んでも場所が分からず、DB が落ちた日に 1 行 3 KB が積もるため。
-    /// WhyNot: 一番外の例外だけを見ない。JDBC も HTTP も本当の理由（接続拒否、証明書）を包んで投げるので、
-    /// 外側だけだと「SQLException が出た」しか残らず、原因が 1 行も出ない。
-    /// WhyNot: cause を無制限に辿らない。3 段あれば本当の理由に届き、循環した cause でも止まる。
-    /// WhyNot: 改行で区切らない。toJsonLine が制御文字を落とす（log injection 対策）ので、改行だと frame が全部繋がって 1 語になる。
+    /// - message: trimmed to 200 characters, with everything from `"Detail:"` onwards dropped. Empty when null.
+    /// - cause: `getCause` followed up to 3 links, each rendered `"type: message"` and joined with `" <- "`.
+    ///   Absent when there is no cause.
+    /// - stacktrace: the Flix frames only (class name containing `Def$` or `Clo$`), at most 8, joined with `" | "`.
+    ///
+    /// WhyNot: the message is not printed whole, because PostgreSQL puts the offending row
+    /// (a key, an email address) after `Detail:`.
+    /// WhyNot: not every frame, because `dev.flix.runtime` and JDK frames do not say where you are,
+    /// and on the day the database falls over they pile up 3 KB per line.
+    /// WhyNot: not the outermost exception alone. JDBC and HTTP both wrap the real reason
+    /// (connection refused, a certificate), so the outside leaves you with "a SQLException happened"
+    /// and not one line of cause.
+    /// WhyNot: the cause chain is not followed without a limit. Three links reach the real reason
+    /// and stop on a cause that cycles.
+    /// WhyNot: not separated by newlines. `toJsonLine` strips control characters (log injection),
+    /// so newlines would run every frame together into one word.
     ///
     pub def exception(error: Throwable, fields: Fields): Fields \ IO =
         let message: String = error.getMessage();
@@ -269,7 +284,7 @@ mod Logfx {
             |> Fields.opt("exception.cause", if (List.isEmpty(causes)) None else Some(List.join(" <- ", causes)))
             |> Fields.str("exception.stacktrace", flixFrames(error) |> List.join(" | "))
 
-    /// getCause の連鎖を budget 段まで "型: message" にする。null で止まる。
+    /// Renders the `getCause` chain as `"type: message"`, up to `budget` links. Stops at null.
     def causeChain(error: Throwable, budget: Int32): List[String] \ IO =
         if (budget <= 0 or Object.isNull(error)) Nil
         else {
@@ -279,11 +294,11 @@ mod Logfx {
             text :: causeChain(next, budget - 1)
         }
 
-    /// "Detail:" より前を取り、前後の空白を落として 200 字に切る。
+    /// Takes what comes before `"Detail:"`, trims it, and cuts it to 200 characters.
     def shortMessage(message: String): String =
         String.splitOn(substr = "Detail:", message) |> List.head |> Option.getWithDefault("") |> String.trim |> String.takeLeft(200)
 
-    /// Flix の frame だけを 8 つ。
+    /// The Flix frames only, at most 8.
     def flixFrames(error: Throwable): List[String] \ IO =
         Array.toList(error.getStackTrace())
             |> List.filter(frame -> {
@@ -296,8 +311,9 @@ mod Logfx {
     // ---- span と handler ----
 
     ///
-    /// span: thunk の中の全行に fields を足す。行の fields と入れ子の内側が勝つ。
-    /// fields が先なのは `run { … } with Logfx.withFields(fields)` の部分適用で使うため。
+    /// A scope (span): every line emitted inside the thunk carries the fields. The line's own
+    /// fields win over these, and an inner `withFields` wins over an outer one.
+    /// The fields come first so it partially applies as `run { ... } with Logfx.withFields(fields)`.
     ///
     pub def withFields(fields: Fields, thunk: Unit -> a \ ef): a \ (ef - Logfx) + Logfx =
         run {
@@ -311,19 +327,24 @@ mod Logfx {
         }
 
     ///
-    /// スレッドの入口。全段を sink に渡す。段で絞るなら runWithMin。
+    /// The entry point of a thread. Passes every severity to the sink.
+    /// Use `runWithMin` to drop the lighter lines.
     ///
     pub def runWith(sink: Sink, thunk: Unit -> a \ ef): a \ (ef - Logfx) + IO =
         runWithMin(Severity.Trace, sink, thunk)
 
     ///
-    /// スレッドの入口。min より軽い行は enabled が false になり、sink に届かない（min は残す）。
+    /// The entry point of a thread. Lines below `min` get `false` from `enabled` and never reach
+    /// the sink (`min` itself is kept).
     ///
-    /// WhyNot: sink の例外を呼ぶ側に届けないのは、effect の操作の時点で thunk の frame は巻き戻されていて呼ぶ側の catch を素通りし、
-    /// Tx の後始末が飛ぶため。ログの失敗で業務を落とさない。代わりに sink が壊れた事を運用者に伝える口は Sink.fallback。
+    /// WhyNot: an exception from the sink does not reach the caller. At the point the effect operation
+    /// runs, the thunk's frames are already unwound, so a throw would sail past the caller's `catch`
+    /// and skip the transaction cleanup. A failure to log must not take the request down.
+    /// `Sink.fallback` is where a broken sink gets told to the operator instead.
     ///
-    /// WhyNot: 段の判定を Sink.minSeverity だけに任せない。sink まで行ってから捨てると、捨てる行でも fields は組み上がっている。
-    /// handler で答えれば logWith / infoWith が組み立てごと飛ばせる。
+    /// WhyNot: the severity test is not left to `Sink.minSeverity` alone. Dropping the line at the sink
+    /// means the fields were built anyway. Answering in the handler lets `logWith` / `infoWith`
+    /// skip the building too.
     ///
     pub def runWithMin(min: Severity, sink: Sink, thunk: Unit -> a \ ef): a \ (ef - Logfx) + IO =
         run {
@@ -341,7 +362,7 @@ mod Logfx {
         }
 
     ///
-    /// テスト用。行を集めて thunk の結果と一緒に返す（古い順）。
+    /// For tests. Collects the lines and returns them with the thunk's result, oldest first.
     ///
     pub def runWithList(thunk: Unit -> a \ ef): (a, List[Record]) \ (ef - Logfx) =
         run {
@@ -357,11 +378,14 @@ mod Logfx {
     // ---- 1 行 JSON ----
 
     ///
-    /// Record を 1 行 JSON にする。キーの順は time / severity / message が先頭で、残りは名前順。
-    /// time は ISO 8601 の UTC で ms 固定（.000Z も出す）。severity は小文字。全フィールドの文字列から制御文字を落とす。
+    /// Renders a `Record` as one line of JSON. `time` / `severity` / `message` come first,
+    /// the rest in key order. `time` is ISO 8601 UTC with milliseconds always present (`.000Z` too);
+    /// `severity` is lower case. Control characters are stripped from every string in the fields.
     ///
-    /// WhyNot: fields の time / severity / message を捨てるのは、同じキーが 2 度出ると JSON を読む側でどちらが残るか決まらないため。
-    /// WhyNot: 制御文字を JSON の escape に任せないのは、改行は割れなくても端末のエスケープシーケンスは通り、偽の行を作れてしまうため（log injection）。
+    /// WhyNot: `time` / `severity` / `message` in the fields are dropped, because the same key twice
+    /// leaves it up to the reader of the JSON which one survives.
+    /// WhyNot: control characters are not left to JSON escaping. A newline would not split the line,
+    /// but a terminal escape sequence passes through and can forge one (log injection).
     ///
     pub def toJsonLine(timeMillis: Int64, record: Record): String =
         let head = List#{("time", Value.Str(timeText(timeMillis))), ("severity", Value.Str(severityText(record#severity))), ("message", Value.Str(record#message))};
@@ -372,7 +396,8 @@ mod Logfx {
             |> body -> "{${body}}"
 
     ///
-    /// 設定の文字列（CMS_LOG_LEVEL など）から Severity。大文字小文字は問わない。知らない語は None。
+    /// A `Severity` from a configuration string (`LOG_LEVEL`, and so on). Case insensitive.
+    /// An unknown word is `None`.
     ///
     pub def parseSeverity(text: String): Option[Severity] = match String.toLowerCase(String.trim(text)) {
         case "trace" => Some(Severity.Trace)
@@ -384,7 +409,7 @@ mod Logfx {
         case _       => None
     }
 
-    /// severity の JSON の値。
+    /// The JSON value for a severity.
     def severityText(severity: Severity): String = match severity {
         case Severity.Trace => "trace"
         case Severity.Debug => "debug"
@@ -394,7 +419,7 @@ mod Logfx {
         case Severity.Fatal => "fatal"
     }
 
-    /// 文字列の中の制御文字を落とす。一覧とオブジェクトは中まで。
+    /// Strips control characters from strings, recursing into lists and objects.
     def withoutControlChars(value: Value): Value = match value {
         case Value.Str(text)    => Value.Str(String.replaceMatches(regex = "\\p{Cntrl}", to = "", text))
         case Value.List(items)  => Value.List(List.map(withoutControlChars, items))
@@ -403,14 +428,17 @@ mod Logfx {
     }
 
     ///
-    /// epoch ms を ISO 8601 の UTC（yyyy-MM-ddTHH:mm:ss.SSSZ）にする。負の値は 1970 年より前。
+    /// Epoch milliseconds as ISO 8601 UTC (`yyyy-MM-ddTHH:mm:ss.SSSZ`). Negative values are before 1970.
     ///
-    /// WhyNot: java.time に寄せない（5 行で済む所を 40 行書いている）。理由は 2 つ。
-    /// 1 つ目は effect で、Java の呼び出しは `\ IO` なので toJsonLine と timeText が IO に染まり、
-    /// 行の見た目を純粋な関数として表駆動で確かめられなくなる（Sink だけが IO、という境界が崩れる）。
-    /// 2 つ目は出力の固定で、DateTimeFormatter.ISO_INSTANT は ms が 0 の時に ".000" を落とすので、
-    /// 桁数の揃わない time が混ざる。ログ基盤が時刻の形で取る以上、ここは揺らせない。
-    /// 暦の計算自体は Howard Hinnant の civil_from_days で、境界はうるう日・9999 年・負の時刻を表で押さえてある。
+    /// WhyNot: not `java.time`, which would be 5 lines instead of 40. Two reasons.
+    /// Effects: a Java call is `\ IO`, so `toJsonLine` and `timeText` would become `IO` too, and the
+    /// shape of a line could no longer be checked as a pure function in a table
+    /// (the boundary where only the sink is `IO` would break).
+    /// Output: `DateTimeFormatter.ISO_INSTANT` drops `".000"` when the milliseconds are zero,
+    /// mixing widths into the `time` field. A log backend reads the timestamp by its shape,
+    /// so it cannot move.
+    /// The calendar arithmetic itself is Howard Hinnant's `civil_from_days`; leap days, year 9999
+    /// and negative times are pinned down in a table test.
     ///
     pub def timeText(timeMillis: Int64): String =
         let days = floorDiv(timeMillis, 86400000i64);
@@ -422,12 +450,12 @@ mod Logfx {
         let millis = msOfDay - (msOfDay / 1000i64) * 1000i64;
         "${pad(4, year)}-${pad(2, month)}-${pad(2, day)}T${pad(2, hour)}:${pad(2, minute)}:${pad(2, second)}.${pad(3, millis)}Z"
 
-    /// 負の方向にも切り捨てる割り算（divisor は正）。
+    /// Division that rounds towards negative infinity (`divisor` is positive).
     def floorDiv(dividend: Int64, divisor: Int64): Int64 =
         let quotient = dividend / divisor;
         if (dividend - quotient * divisor < 0i64) quotient - 1i64 else quotient
 
-    /// エポックからの日数を (年, 月, 日) に。グレゴリオ暦。
+    /// Days since the epoch as (year, month, day), Gregorian.
     def civilOf(days: Int64): (Int64, Int64, Int64) =
         let z = days + 719468i64;
         let era = floorDiv(z, 146097i64);
@@ -440,7 +468,7 @@ mod Logfx {
         let year = yearOfEra + era * 400i64 + (if (month <= 2i64) 1i64 else 0i64);
         (year, month, day)
 
-    /// 0 埋めの数字。
+    /// A zero-padded number.
     def pad(width: Int32, n: Int64): String = String.padLeft(width, '0', Int64.toString(n))
 
 }

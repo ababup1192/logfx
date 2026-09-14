@@ -1,4 +1,4 @@
-.PHONY: check test consume pkg release clean
+.PHONY: check test consume examples doc pkg release clean
 
 # Flix コンパイラは flix_game_engine の devbox が持つ jar を借りる（bin/flix が解決する）。
 check:
@@ -10,6 +10,15 @@ test:
 # まっさらなプロジェクトから取り込んで動かす（CI と同じ物）。
 consume:
 	ci/consume.sh local
+
+# examples/ を、今のソースから作った .fpkg に対してビルドして走らせる。
+examples:
+	ci/example.sh
+
+# 公開するリファレンス（flix doc）を build/doc/ に作る。
+# tag を打つと .github/workflows/pages.yml が同じ script を走らせて GitHub Pages に置く。
+doc:
+	ci/doc.sh
 
 # 配布用の .fpkg を作る。
 # WhyNot: test/ を詰めない。利用側で TestLogfx が走る意味が無く、モジュール名を 1 つ余計に取る。

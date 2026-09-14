@@ -47,6 +47,10 @@ nextcms（Flix 製のヘッドレス CMS。非公開のリポジトリなので�
 - **実験フラグ（`--Xsubeffecting=lambdas` など）込みでしか通らないコードを書かない。**
   利用側は素の flix で取り込む。純粋なラムダを `\ IO` の所に渡す時は `checked_ecast` を書く
 - **release の前に `make consume` を通す。** 型検査とテストが緑でも取り込めない事がある
+- **版を上げたら `examples/*/flix.toml` の logfx の版も上げる。** ずれていると `ci/example.sh`
+  が止まる（例が、どの release にも無い API を指したままになる為）
+- **README の最初のコード片は `examples/quickstart` の写し。** 直す時は両方。
+  あちらが本体で、README のコードは誰もコンパイルしない
 
 ## コーディングポリシー
 
@@ -56,6 +60,10 @@ nextcms（Flix 製のヘッドレス CMS。非公開のリポジトリなので�
 
 **理由を正確に書く。** ライブラリは理由ごと真似られるので、間違った理由は API そのものより害が大きい。
 
+**`///`（doc コメント）は英語、`//` は日本語。** `flix doc` の出力が
+[公開リファレンス](https://ababup1192.github.io/logfx/Logfx.html)になるので、`///` は外に出る文字列。
+`///` の中の WhyNot も英語で書く。
+
 ## ビルドと配布
 
 Flix コンパイラは `bin/flix` が解決する（`FLIX_JAR` か `FLIX_ENGINE_ROOT` を渡せばそれを使う）。
@@ -64,6 +72,8 @@ Flix コンパイラは `bin/flix` が解決する（`FLIX_JAR` か `FLIX_ENGINE
 make check    # 型検査
 make test     # テスト
 make consume  # まっさらなプロジェクトから取り込んで動かす（ci/consume.sh local）
+make examples # examples/ を今のソースに対してビルドして走らせる（ci/example.sh）
+make doc      # 公開する API リファレンス（ci/doc.sh → build/doc/）
 make pkg      # 配布用の .fpkg（build/logfx/artifact/）
 make release  # GitHub の release に .fpkg と flix.toml を付ける
 ```
@@ -81,5 +91,7 @@ make release  # GitHub の release に .fpkg と flix.toml を付ける
 | `src/Logfx/Fields.flix` | フィールドのビルダー |
 | `src/Logfx/Sink.flix` | Sink（`json` / `silent` / `collect` と、重ねる `minSeverity` / `enrich` / `tee` / `fallback`） |
 | `test/TestLogfx.flix` | 表駆動のテスト |
-| `ci/` | 取り込み側から見る smoke（`consume.sh` と、捨てプロジェクトの `consumer/`） |
-| `.github/workflows/ci.yml` | push ごとの `make check` / `make test` と取り込みの確認 |
+| `examples/` | 利用側から書いたコード。`quickstart`（README の最初の塊）と `server`（組み込み一式） |
+| `ci/` | 取り込み側から見る smoke（`consume.sh` と捨てプロジェクトの `consumer/`）、`example.sh`、リファレンスの `doc.sh` |
+| `.github/workflows/ci.yml` | push ごとの `make check` / `make test` / 取り込み / `make examples` |
+| `.github/workflows/pages.yml` | tag を打った時だけ、`make doc` の結果を GitHub Pages に置く |
