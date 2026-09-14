@@ -26,8 +26,17 @@ def main(): Unit \ IO =
 ```
 
 ```json
-{"time":"2026-09-14T07:00:00.000Z","severity":"info","message":"request finished","http.request.method":"GET","http.response.status_code":200,"url.path":"/posts"}
+{
+  "time": "2026-09-14T07:00:00.000Z",
+  "severity": "info",
+  "message": "request finished",
+  "http.request.method": "GET",
+  "http.response.status_code": 200,
+  "url.path": "/posts"
+}
 ```
+
+That is one line; it is wrapped here so you can read it.
 
 | | |
 |---|---|
@@ -40,6 +49,8 @@ The short form (`= "0.3.0"`) is rejected by Flix for a package that uses Java in
 
 ## What you can do with it
 
+Every JSON block below is one line exactly as it is emitted, wrapped here so you can read it.
+
 **Compose the destination in four lines.** A `Sink` is `Record -> Unit \ IO`, and everything that
 wraps one has that same type, so they just nest.
 
@@ -49,8 +60,19 @@ Logfx.Sink.minSeverity(Logfx.Severity.Info,
         Logfx.Sink.json(clock, line -> println(line))))
 ```
 
-Writing to a file, shipping to a collector, buffering in a test — all of that is your code, and it
-is a `def` you pass in. This library does not grow output backends.
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "info",
+  "message": "request finished",
+  "service.name": "api",
+  "url.path": "/posts"
+}
+```
+
+`service.name` is on every line without a single call site mentioning it. Writing to a file,
+shipping to a collector, buffering in a test — all of that is your code, and it is a `def` you pass
+in. This library does not grow output backends.
 
 **Decide the severity from the fields you already collected.** `emit` takes the severity as a
 value, and the accessors let a caller read its own attributes back.
@@ -65,15 +87,66 @@ def severityOf(path: String, status: Int32, fields: Logfx.Fields): Logfx.Severit
     else Logfx.Severity.Info
 ```
 
-That last line is how a health check stops filling the dashboard without leaving the logs.
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "warn",
+  "message": "request",
+  "auth.result": "invalid",
+  "http.response.status_code": 200,
+  "service.name": "api",
+  "url.path": "/admin"
+}
+```
+
+A 200 that is a warning: the status code alone would never have told you. The `/health` line is the
+same idea pointed the other way — a health check stops filling the dashboard without leaving the
+logs.
 
 **Attach a span once; every line inside carries it.**
 
 ```flix
 run {
     route(path)                                   // every line in here gets request.id
-} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId))
+} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", "01JC5H"))
 ```
+
+```json
+{"time":"2025-09-08T02:53:20.123Z","severity":"warn","message":"slow query","db.query.duration_ms":812,"request.id":"01JC5H","service.name":"api"}
+{"time":"2025-09-08T02:53:20.123Z","severity":"info","message":"request finished","http.response.status_code":200,"request.id":"01JC5H","service.name":"api"}
+```
+
+Now `| json | request_id="01JC5H"` pulls back the whole request, including the lines you wrote
+three call levels down.
+
+**Turn a caught exception into fields something can count.**
+
+```flix
+Logfx.Fields.empty()
+    |> Logfx.Fields.int("http.response.status_code", 500i64)
+    |> Logfx.exception(error)
+    |> Logfx.error("request failed")
+```
+
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "error",
+  "message": "request failed",
+  "exception.message": "connection refused",
+  "exception.stacktrace": "Handler.Def$fetchPosts.staticApply(Handler.flix:87) | Handler.Def$listPosts.applyFrame(Handler.flix:59)",
+  "exception.type": "java.lang.RuntimeException",
+  "http.request.method": "GET",
+  "http.response.status_code": 500,
+  "request.id": "r2",
+  "service.name": "example-server",
+  "service.version": "0.0.0",
+  "url.path": "/posts"
+}
+```
+
+`exception.type` is a scalar, so it groups. The stack trace is the Flix frames and nothing else —
+see [what logfx trims](#what-logfx-trims-on-the-way-out) for why that matters at 3 a.m.
 
 **Fields are a plain `Map[String, Value]`, so your own merge rule fits.** Two transactions in one
 request should add up, not overwrite each other:
@@ -88,6 +161,12 @@ def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = ma
 }
 ```
 
+```json
+{"time":"2025-09-08T02:53:20.123Z","severity":"info","message":"request finished","db.statements":5,"db.transactions":1,"service.name":"api"}
+```
+
+`2 + 3 = 5`, not `3`. A per-request SQL budget is now a number you can alert on.
+
 **Build the expensive fields only if the line is going to exist.** `enabled` is an operation of the
 effect, so the answer comes from the handler before anything is built:
 
@@ -95,8 +174,8 @@ effect, so the answer comes from the handler before anything is built:
 Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
 ```
 
-`explain(sql)` never runs when the threshold is `Info`. Ask directly with `Logfx.enabled(severity)`
-when the work is bigger than one field.
+At a threshold of `Info` this emits nothing **and** `explain(sql)` never runs. Ask directly with
+`Logfx.enabled(severity)` when the work is bigger than one field.
 
 **Keep the request alive when the sink dies.** `runWith` never lets a failing sink escape into your
 code: at the point the effect operation runs, the caller's frames are already unwound, so a throw
@@ -109,8 +188,18 @@ Silence is a problem of its own, so name where a broken sink writes instead:
 Logfx.Sink.fallback(toCollector, Logfx.Sink.json(clock, line -> System.err.println(line)))
 ```
 
-The line reaches `stderr` with `logfx.fallback_reason` added, naming the exception that killed the
-primary. What an operator needs is the line, not a notification about the line.
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "warn",
+  "message": "primary is down",
+  "logfx.fallback_reason": "java.lang.RuntimeException: collector unreachable",
+  "url.path": "/posts"
+}
+```
+
+The line itself reaches `stderr`, with the exception that killed the primary added to it. What an
+operator needs is the line, not a notification about the line.
 
 **Test what you logged, as values.** `runWithList` is pure — no `IO` — and enables every severity,
 so a test never depends on the deployment's threshold.
@@ -321,8 +410,17 @@ def main(): Unit \ IO =
 ```
 
 ```json
-{"time":"2026-09-14T07:00:00.000Z","severity":"info","message":"request finished","http.request.method":"GET","http.response.status_code":200,"url.path":"/posts"}
+{
+  "time": "2026-09-14T07:00:00.000Z",
+  "severity": "info",
+  "message": "request finished",
+  "http.request.method": "GET",
+  "http.response.status_code": 200,
+  "url.path": "/posts"
+}
 ```
+
+出るのは 1 行。読めるように折り返してある。
 
 | | |
 |---|---|
@@ -335,6 +433,8 @@ def main(): Unit \ IO =
 
 ## 何ができるか
 
+下の JSON はどれも実際に出る 1 行で、読めるように折り返してある。
+
 **出力先は 4 行で組める。** `Sink` は `Record -> Unit \ IO` で、それを包む物も全部同じ型なので、
 そのまま重なる。
 
@@ -344,6 +444,17 @@ Logfx.Sink.minSeverity(Logfx.Severity.Info,
         Logfx.Sink.json(clock, line -> println(line))))
 ```
 
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "info",
+  "message": "request finished",
+  "service.name": "api",
+  "url.path": "/posts"
+}
+```
+
+`service.name` は全行に付いているが、呼ぶ側のコードはどこにもその名前を書いていない。
 ファイルに書く・別の場所へ送る・テストで溜める、はすべて利用側のコードで、渡すのは `def` 1 つ。
 ライブラリ側に出力先を増やさない。
 
@@ -360,15 +471,64 @@ def severityOf(path: String, status: Int32, fields: Logfx.Fields): Logfx.Severit
     else Logfx.Severity.Info
 ```
 
-最後の 1 行が、外形監視の行でダッシュボードを埋めずに、ログには残す書き方。
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "warn",
+  "message": "request",
+  "auth.result": "invalid",
+  "http.response.status_code": 200,
+  "service.name": "api",
+  "url.path": "/admin"
+}
+```
+
+200 なのに warn。status code だけを見ていては絶対に出てこない行。`/health` の 1 行は同じ考えを
+逆に使った物で、外形監視でダッシュボードを埋めずに、ログには残す。
 
 **span は 1 回付ければ、中の行すべてに付く。**
 
 ```flix
 run {
     route(path)                                   // ここで出る行には全部 request.id が付く
-} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", requestId))
+} with Logfx.withFields(Logfx.Fields.empty() |> Logfx.Fields.str("request.id", "01JC5H"))
 ```
+
+```json
+{"time":"2025-09-08T02:53:20.123Z","severity":"warn","message":"slow query","db.query.duration_ms":812,"request.id":"01JC5H","service.name":"api"}
+{"time":"2025-09-08T02:53:20.123Z","severity":"info","message":"request finished","http.response.status_code":200,"request.id":"01JC5H","service.name":"api"}
+```
+
+これで `| json | request_id="01JC5H"` が 1 リクエスト分を全部引く。3 段下で書いた行も一緒に来る。
+
+**捕まえた例外は、集計できるフィールドになる。**
+
+```flix
+Logfx.Fields.empty()
+    |> Logfx.Fields.int("http.response.status_code", 500i64)
+    |> Logfx.exception(error)
+    |> Logfx.error("request failed")
+```
+
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "error",
+  "message": "request failed",
+  "exception.message": "connection refused",
+  "exception.stacktrace": "Handler.Def$fetchPosts.staticApply(Handler.flix:87) | Handler.Def$listPosts.applyFrame(Handler.flix:59)",
+  "exception.type": "java.lang.RuntimeException",
+  "http.request.method": "GET",
+  "http.response.status_code": 500,
+  "request.id": "r2",
+  "service.name": "example-server",
+  "service.version": "0.0.0",
+  "url.path": "/posts"
+}
+```
+
+`exception.type` はスカラーなので、そのまま group by できる。stacktrace は Flix の frame だけで、
+その理由は[出る途中で削る物](#logfx-が出る途中で削る物)にある。深夜 3 時に効いてくる。
 
 **Fields はただの `Map[String, Value]` なので、独自のマージ規則が書ける。** 1 リクエストで
 Tx を 2 回張ったら、上書きではなく足したい:
@@ -383,6 +543,12 @@ def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = ma
 }
 ```
 
+```json
+{"time":"2025-09-08T02:53:20.123Z","severity":"info","message":"request finished","db.statements":5,"db.transactions":1,"service.name":"api"}
+```
+
+`3` ではなく `2 + 3 = 5`。1 リクエストあたりの SQL の上限が、アラートを書ける数字になる。
+
 **重い fields は、行が本当に出る時だけ組み立てる。** `enabled` は effect の op なので、
 組み立てる前に handler が答える:
 
@@ -390,7 +556,7 @@ def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = ma
 Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
 ```
 
-段が `Info` なら `explain(sql)` は走らない。フィールド 1 つより大きい仕事なら
+段が `Info` なら行が出ないだけでなく、`explain(sql)` も走らない。フィールド 1 つより大きい仕事なら
 `Logfx.enabled(severity)` で直接訊く。
 
 **Sink が壊れてもリクエストは死なない。** `runWith` は sink の例外を呼ぶ側に漏らさない。
@@ -403,8 +569,18 @@ Tx の後始末が飛ぶため。ログの失敗で業務を落とさない。
 Logfx.Sink.fallback(toCollector, Logfx.Sink.json(clock, line -> System.err.println(line)))
 ```
 
-行は `logfx.fallback_reason`（primary を殺した例外）付きで stderr に出る。運用者が要るのは
-通知ではなく、消えたはずの行そのもの。
+```json
+{
+  "time": "2025-09-08T02:53:20.123Z",
+  "severity": "warn",
+  "message": "primary is down",
+  "logfx.fallback_reason": "java.lang.RuntimeException: collector unreachable",
+  "url.path": "/posts"
+}
+```
+
+行そのものが stderr に出る。primary を殺した例外が付いた形で。運用者が要るのは通知ではなく、
+消えたはずの行そのもの。
 
 **出したログは値としてテストできる。** `runWithList` は純粋（`IO` が付かない）で全段を有効に
 するので、本番の段の設定にテストが引きずられない。
