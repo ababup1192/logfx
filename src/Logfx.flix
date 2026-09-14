@@ -65,9 +65,60 @@ mod Logfx {
     ///
     /// 文字列なら取り出す。
     ///
+    /// WhyNot: valueAsStr だけを置かない。Sink を書く人はフィールドを見て振り分けるので、
+    /// 1 つだけ pub だと「残りは match しろ」なのか「まだ書いていない」のか読めない。全部の case に 1 つずつ置く。
+    ///
     pub def valueAsStr(value: Value): Option[String] = match value {
         case Value.Str(s) => Some(s)
         case _            => None
+    }
+
+    ///
+    /// 整数なら取り出す。
+    ///
+    pub def valueAsInt(value: Value): Option[Int64] = match value {
+        case Value.Int(n) => Some(n)
+        case _            => None
+    }
+
+    ///
+    /// 小数なら取り出す。整数は写さない（型が違う事を隠さない）。
+    ///
+    pub def valueAsFloat(value: Value): Option[Float64] = match value {
+        case Value.Float(x) => Some(x)
+        case _              => None
+    }
+
+    ///
+    /// 真偽なら取り出す。
+    ///
+    pub def valueAsBool(value: Value): Option[Bool] = match value {
+        case Value.Bool(b) => Some(b)
+        case _             => None
+    }
+
+    ///
+    /// 一覧なら取り出す。
+    ///
+    pub def valueAsList(value: Value): Option[List[Value]] = match value {
+        case Value.List(items) => Some(items)
+        case _                 => None
+    }
+
+    ///
+    /// オブジェクトなら取り出す。
+    ///
+    pub def valueAsObj(value: Value): Option[Map[String, Value]] = match value {
+        case Value.Obj(fields) => Some(fields)
+        case _                 => None
+    }
+
+    ///
+    /// null か。
+    ///
+    pub def valueIsNull(value: Value): Bool = match value {
+        case Value.Null => true
+        case _          => false
     }
 
     ///
@@ -353,6 +404,13 @@ mod Logfx {
 
     ///
     /// epoch ms を ISO 8601 の UTC（yyyy-MM-ddTHH:mm:ss.SSSZ）にする。負の値は 1970 年より前。
+    ///
+    /// WhyNot: java.time に寄せない（5 行で済む所を 40 行書いている）。理由は 2 つ。
+    /// 1 つ目は effect で、Java の呼び出しは `\ IO` なので toJsonLine と timeText が IO に染まり、
+    /// 行の見た目を純粋な関数として表駆動で確かめられなくなる（Sink だけが IO、という境界が崩れる）。
+    /// 2 つ目は出力の固定で、DateTimeFormatter.ISO_INSTANT は ms が 0 の時に ".000" を落とすので、
+    /// 桁数の揃わない time が混ざる。ログ基盤が時刻の形で取る以上、ここは揺らせない。
+    /// 暦の計算自体は Howard Hinnant の civil_from_days で、境界はうるう日・9999 年・負の時刻を表で押さえてある。
     ///
     pub def timeText(timeMillis: Int64): String =
         let days = floorDiv(timeMillis, 86400000i64);

@@ -117,6 +117,28 @@ mod TestLogfx {
                         "{\"time\":\"1970-01-01T00:00:00.000Z\",\"severity\":\"info\",\"message\":\"m\",\"n\":3000000000}"),
             (Map.toList(fields), Logfx.toJsonLine(0i64, recordOf(Severity.Info, "m", Fields.empty() |> Fields.int("n", 3000000000i64)))))
 
+    /// float / obj / value はその形の Logfx.Value になる（value は Null も入れられる）。
+    @Test
+    def testFieldsCoversEveryValue(): Unit \ Assert =
+        let cases = List#{
+            (Fields.empty() |> Fields.float("k", 1.5),                                List#{("k", Logfx.Value.Float(1.5))}),
+            (Fields.empty() |> Fields.obj("k", Fields.empty() |> Fields.str("a", "b")), List#{("k", Logfx.Value.Obj(Map#{"a" => Logfx.Value.Str("b")}))}),
+            (Fields.empty() |> Fields.value("k", Logfx.Value.Null),                   List#{("k", Logfx.Value.Null)})
+        };
+        Assert.assertEq(expected = cases |> List.map(snd), cases |> List.map(match (fields, _) -> Map.toList(fields)))
+
+    /// valueAs* は自分の case だけを取り出し、他の case では None。valueIsNull は Null にだけ true。
+    @Test
+    def testValueAccessors(): Unit \ Assert =
+        let str = Logfx.Value.Str("s");
+        let int = Logfx.Value.Int(7i64);
+        Assert.assertEq(
+            expected = (Some("s"), None, Some(7i64), None, Some(1.5), Some(true), Some(List#{str}), Some(Map#{"a" => str}), (true, false)),
+            (Logfx.valueAsStr(str), Logfx.valueAsStr(int), Logfx.valueAsInt(int), Logfx.valueAsInt(str),
+             Logfx.valueAsFloat(Logfx.Value.Float(1.5)), Logfx.valueAsBool(Logfx.Value.Bool(true)),
+             Logfx.valueAsList(Logfx.Value.List(List#{str})), Logfx.valueAsObj(Logfx.Value.Obj(Map#{"a" => str})),
+             (Logfx.valueIsNull(Logfx.Value.Null), Logfx.valueIsNull(str))))
+
     // ---- withFields（span）----
 
     /// 外の fields は中の全行に付く。severity は呼んだ関数の物。

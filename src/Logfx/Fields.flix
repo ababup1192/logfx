@@ -20,6 +20,27 @@ mod Logfx.Fields {
     pub def int(key: String, value: Int64, fields: Logfx.Fields): Logfx.Fields =
         Map.insert(key, Logfx.Value.Int(value), fields)
 
+    ///
+    /// 小数を足す。NaN と無限大は JSON では null になる（値が壊れた事を残す）。
+    ///
+    pub def float(key: String, value: Float64, fields: Logfx.Fields): Logfx.Fields =
+        Map.insert(key, Logfx.Value.Float(value), fields)
+
+    ///
+    /// 入れ子のオブジェクトを足す（Fields をそのまま 1 つの値にする）。
+    ///
+    pub def obj(key: String, value: Logfx.Fields, fields: Logfx.Fields): Logfx.Fields =
+        Map.insert(key, Logfx.Value.Obj(value), fields)
+
+    ///
+    /// 任意の Logfx.Value を足す。null（Logfx.Value.Null）や入れ子の一覧はこれで書く。
+    ///
+    /// WhyNot: case ごとに def を増やさない。Logfx.Fields は Map[String, Logfx.Value] の別名なので、
+    /// 覆い切れていないと利用側が Map.insert を直に書き、それが作法として真似される。口を 1 つ開けて塞ぐ。
+    ///
+    pub def value(key: String, value: Logfx.Value, fields: Logfx.Fields): Logfx.Fields =
+        Map.insert(key, value, fields)
+
     /// 真偽を足す。
     pub def bool(key: String, value: Bool, fields: Logfx.Fields): Logfx.Fields =
         Map.insert(key, Logfx.Value.Bool(value), fields)
