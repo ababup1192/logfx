@@ -4,7 +4,7 @@
 /// WhyNot: a lambda literal is not put in a `let` and then used on both sides of a `spawn`,
 /// because effect inference fails there.
 ///
-mod Logfx.Sink {
+pub mod Logfx.Sink {
     import java.lang.Throwable
 
     use Logfx.Severity

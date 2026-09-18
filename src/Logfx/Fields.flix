@@ -2,7 +2,7 @@
 /// The field builder. Typed additions chained with a pipe
 /// (`Fields.empty() |> Fields.str("k", "v") |> Logfx.info("m")`).
 ///
-mod Logfx.Fields {
+pub mod Logfx.Fields {
 
     /// The empty fields.
     pub def empty(): Logfx.Fields = Map.empty()

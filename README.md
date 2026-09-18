@@ -4,7 +4,7 @@
 
 **Structured logging for [Flix](https://flix.dev).** A line is emitted through a `Logfx` effect;
 where it goes is a plain value (`Sink`) you compose and swap. Nothing outside the JDK — no Maven
-dependencies, no experimental compiler flags. Built with Flix 0.75.3.
+dependencies, no experimental compiler flags. Built with Flix 0.76.0 from 0.3.3 on (0.3.2 is the last version for 0.75.x).
 
 ```flix
 import java.lang.System
@@ -40,12 +40,12 @@ That is one line; it is wrapped here so you can read it.
 
 | | |
 |---|---|
-| Install | `"github:ababup1192/logfx" = { version = "0.3.2", security = "unrestricted" }` under `[dependencies]` |
+| Install | `"github:ababup1192/logfx" = { version = "0.3.3", security = "unrestricted" }` under `[dependencies]` |
 | API reference | <https://ababup1192.github.io/logfx/Logfx.html> |
 | Runnable examples | [`examples/`](examples) — the block above is [`examples/quickstart`](examples/quickstart), and CI compiles it |
 
 `security = "unrestricted"` is required because `Logfx.exception` reads a `java.lang.Throwable`.
-The short form (`= "0.3.2"`) is rejected by Flix for a package that uses Java interop.
+The short form (`= "0.3.3"`) is rejected by Flix for a package that uses Java interop.
 
 ## What you can do with it
 
@@ -440,7 +440,7 @@ Apache-2.0
 # logfx（日本語）
 
 **Flix の構造化ログ。** `Logfx` effect で 1 行を出し、出力先（Sink）は値として差し替える。
-JDK より外の依存は無く、実験フラグも要らない。Flix 0.75.3 で作っている。
+JDK より外の依存は無く、実験フラグも要らない。0.3.3 から Flix 0.76.0 で作っている（0.75.x で使うなら 0.3.2）。
 
 > 上の英語版が正。ずれていたらそちらを見る。
 
@@ -478,7 +478,7 @@ def main(): Unit \ IO =
 
 | | |
 |---|---|
-| 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.2", security = "unrestricted" }` |
+| 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.3", security = "unrestricted" }` |
 | API リファレンス | <https://ababup1192.github.io/logfx/Logfx.html> |
 | 動く例 | [`examples/`](examples) — 上の塊がそのまま [`examples/quickstart`](examples/quickstart) で、CI がコンパイルしている |
 
