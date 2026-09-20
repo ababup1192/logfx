@@ -52,8 +52,24 @@ There are three handlers, and which one you want is decided by where you are:
 | `Logfx.runWith(sink)` | The same, with every severity passed on — `runWithMin(Severity.Trace, sink)` |
 | `Logfx.runWithList(thunk)` | A test. Returns `(result, List[Record])`, no `IO`, every severity enabled |
 
-`Logfx.Fields.int` takes an `Int64`, which is why the quickstart writes `200i64`. An `Int32` goes
-through `Int32.toInt64`; there is no overload that clamps it for you.
+`Logfx.Fields.int` takes an `Int64`, which is why the quickstart writes `200i64`.
+
+```mermaid
+flowchart LR
+  code["your code<br/>Logfx.info / Logfx.debugWith"]
+  span["withFields handler<br/>the span"]
+  run["runWithMin handler<br/>one per thread"]
+  sink["the sink you built"]
+  out["stdout, a file, a collector"]
+  code -- "1. enabled severity?" --> run
+  run -- "2. below min: false,<br/>so the fields are never built" --> code
+  code -- "3. emit Record" --> span
+  span -- "4. adds the span's fields,<br/>the line's own keys win" --> run
+  run -- "5. calls the sink, swallows what it throws" --> sink
+  sink -- "6. stamps the time, renders one JSON line" --> out
+```
+
+The handler answers `enabled` before a field is built, and the span merges on the way out.
 
 | | |
 |---|---|
@@ -101,6 +117,21 @@ Logfx.Sink.minSeverity(Logfx.Severity.Info,
 `service.name` is on every line without a single call site mentioning it. Writing to a file,
 shipping to a collector, buffering in a test — all of that is your code, and it is a `def` you pass
 in. This library does not grow output backends.
+
+```mermaid
+flowchart TB
+  rec["Record from the handler"] --> ms{"Sink.minSeverity Info"}
+  ms -- "below Info" --> stop["nothing is written"]
+  ms -- "Info and above" --> en["Sink.enrich service.name=api"]
+  en -- "fills the defaults in,<br/>the line's own keys win" --> tee{"Sink.tee"}
+  tee -- "the same line to both" --> js["Sink.json to println"]
+  tee -- "the same line to both" --> fb{"Sink.fallback"}
+  fb -- "primary returned" --> coll["your collector"]
+  fb -- "primary threw" --> err["Sink.json to stderr, plus<br/>logfx.fallback_reason"]
+```
+
+Every box here has the same type, which is why a threshold, a default, a fan-out and a fallback
+stack in any order.
 
 ### Decide the severity from the fields you already collected
 
@@ -355,8 +386,7 @@ spawn {
 ```
 
 Work that no request is waiting for still says which request it came from, and `Jobs.perform` never
-learned how. `enrich` is the weakest layer, so a line inside the job can still say something else
-under the same key — which is what you want from a default.
+learned how.
 
 The one thing this does not give you is asking, from deep inside a call chain, *what span am I in?*
 Nothing reads the accumulated span back out. Build the span where you know it and hand it to the
@@ -539,7 +569,23 @@ handler は 3 つあり、どこで使うかで決まる:
 | `Logfx.runWithList(thunk)` | テスト。`(結果, List[Record])` を返す。`IO` が付かず、全 severity が有効 |
 
 `Logfx.Fields.int` が取るのは `Int64` で、quickstart が `200i64` と書いているのはそのため。
-`Int32` は `Int32.toInt64` を通して渡す。丸めて受ける形は用意していない。
+
+```mermaid
+flowchart LR
+  code["your code<br/>Logfx.info / Logfx.debugWith"]
+  span["withFields handler<br/>the span"]
+  run["runWithMin handler<br/>one per thread"]
+  sink["the sink you built"]
+  out["stdout, a file, a collector"]
+  code -- "1. enabled severity?" --> run
+  run -- "2. below min: false,<br/>so the fields are never built" --> code
+  code -- "3. emit Record" --> span
+  span -- "4. adds the span's fields,<br/>the line's own keys win" --> run
+  run -- "5. calls the sink, swallows what it throws" --> sink
+  sink -- "6. stamps the time, renders one JSON line" --> out
+```
+
+handler が `enabled` に答えるのは fields を組み立てる前で、span は出ていく途中で混ざる。
 
 | | |
 |---|---|
@@ -587,6 +633,20 @@ Logfx.Sink.minSeverity(Logfx.Severity.Info,
 `service.name` は全行に付いているが、呼ぶ側のコードはどこにもその名前を書いていない。
 ファイルに書く・別の場所へ送る・テストで溜める、はすべて利用側のコードで、渡すのは `def` 1 つ。
 ライブラリ側に出力先を増やさない。
+
+```mermaid
+flowchart TB
+  rec["Record from the handler"] --> ms{"Sink.minSeverity Info"}
+  ms -- "below Info" --> stop["nothing is written"]
+  ms -- "Info and above" --> en["Sink.enrich service.name=api"]
+  en -- "fills the defaults in,<br/>the line's own keys win" --> tee{"Sink.tee"}
+  tee -- "the same line to both" --> js["Sink.json to println"]
+  tee -- "the same line to both" --> fb{"Sink.fallback"}
+  fb -- "primary returned" --> coll["your collector"]
+  fb -- "primary threw" --> err["Sink.json to stderr, plus<br/>logfx.fallback_reason"]
+```
+
+どの箱も型が同じなので、段の絞り込み・既定値・分岐・壊れた時の行き先が、順番を問わず重なる。
 
 ### severity は、既に集めた fields から決められる
 
@@ -832,8 +892,7 @@ spawn {
 ```
 
 誰も待っていない仕事の行にも、どのリクエストから来たかが付く。`Jobs.perform` はその方法を
-一度も知らない。`enrich` は一番弱い層なので、job の中の行が同じキーで別の事を言う余地も残る。
-既定値に求めるのはその性質。
+一度も知らない。
 
 これで足りないのは 1 つだけ。呼び出しの奥から「**今の span は何か**」を訊く事はできない。
 溜まった span を読み返す口が無いため。span は分かっている所で組んでスレッドに渡す——仕組みはそれだけ。
