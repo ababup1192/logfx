@@ -44,13 +44,13 @@ def main(): Unit \ IO =
 
 That is one line; it is wrapped here so you can read it.
 
-There are three handlers, and which one you want is decided by where you are:
+There are three handlers, and the effect each one leaves behind says where it fits:
 
 | | |
 |---|---|
-| `Logfx.runWithMin(min, sink)` | A running program. Lines below `min` get `false` from `enabled` and are never built |
-| `Logfx.runWith(sink)` | The same, with every severity passed on — `runWithMin(Severity.Trace, sink)` |
-| `Logfx.runWithList(thunk)` | A test. Returns `(result, List[Record])`, no `IO`, every severity enabled |
+| `Logfx.runWithMin(min, sink)` | `a \ (ef - Logfx) + IO`. Lines below `min` get `false` from `enabled` and are never built |
+| `Logfx.runWith(sink)` | `runWithMin(Severity.Trace, sink)`: every severity reaches the sink |
+| `Logfx.runWithList(thunk)` | `(a, List[Record]) \ (ef - Logfx)`, every severity enabled, so a test calling it stays `\ Assert` |
 
 `Logfx.Fields.int` takes an `Int64`, which is why the quickstart writes `200i64`.
 
@@ -275,8 +275,8 @@ operator needs is the line, not a notification about the line.
 
 ### Test what you logged, as values
 
-`runWithList` is pure — no `IO` — and enables every severity, so a test never depends on the
-deployment's threshold.
+`runWithList` returns `(a, List[Record])` and enables every severity, so a test calling it stays
+`\ Assert` and reads the same lines whatever the deployment's threshold is.
 
 ```flix
 let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
@@ -560,13 +560,13 @@ def main(): Unit \ IO =
 
 出るのは 1 行。読めるように折り返してある。
 
-handler は 3 つあり、どこで使うかで決まる:
+handler は 3 つあり、残る effect でどこに置く物かが決まる:
 
 | | |
 |---|---|
-| `Logfx.runWithMin(min, sink)` | 動かすプログラム。`min` より軽い行は `enabled` が `false` を返し、組み立てもされない |
-| `Logfx.runWith(sink)` | 同じだが全 severity を通す（`runWithMin(Severity.Trace, sink)`） |
-| `Logfx.runWithList(thunk)` | テスト。`(結果, List[Record])` を返す。`IO` が付かず、全 severity が有効 |
+| `Logfx.runWithMin(min, sink)` | `a \ (ef - Logfx) + IO`。`min` より軽い行は `enabled` が `false` を返し、組み立てもされない |
+| `Logfx.runWith(sink)` | `runWithMin(Severity.Trace, sink)`。全 severity が sink に届く |
+| `Logfx.runWithList(thunk)` | `(a, List[Record]) \ (ef - Logfx)`。全 severity が有効で、呼ぶテストは `\ Assert` のまま |
 
 `Logfx.Fields.int` が取るのは `Int64` で、quickstart が `200i64` と書いているのはそのため。
 
@@ -786,8 +786,8 @@ Logfx.Sink.fallback(toCollector, Logfx.Sink.json(clock, line -> System.err.print
 
 ### 出したログは値としてテストできる
 
-`runWithList` は純粋（`IO` が付かない）で全段を有効にするので、本番の段の設定にテストが
-引きずられない。
+`runWithList` は `(a, List[Record])` を返し、全段を有効にする。呼ぶテストは `\ Assert` のままで、
+本番の段の設定に関わらず同じ行が読める。
 
 ```flix
 let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
