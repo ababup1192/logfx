@@ -3,8 +3,8 @@
 *日本語版はこのページの[下半分](#logfx日本語)にあります。英語版が正。*
 
 **Structured logging for [Flix](https://flix.dev).** A line is emitted through a `Logfx` effect;
-where it goes is a plain value (`Sink`) you compose and swap. Nothing outside the JDK — no Maven
-dependencies, no experimental compiler flags. Built with Flix 0.76.0 from 0.3.3 on (0.3.2 is the last version for 0.75.x).
+where it goes is a plain value (`Sink`) you compose and swap. Built with Flix 0.76.0 from 0.3.3 on
+(0.3.2 is the last version for 0.75.x).
 
 Under `[dependencies]` in your `flix.toml`:
 
@@ -479,8 +479,8 @@ every hand-written handler, which is why `enabled` landed in 0.2.0 while there w
 
 This library was extracted from a headless CMS written in Flix, developed in a private repository.
 If that project stops using logfx, this repository is archived and the README says so on the first
-line. The last released version keeps working — it is a source package with no Maven dependencies,
-pinned to a Flix release. The harm in an unmaintained library is not that it stopped; it is not
+line. The last released version keeps working — it is a source package pinned to a Flix release.
+The harm in an unmaintained library is not that it stopped; it is not
 knowing whether it stopped. So: that is the condition, written down in advance.
 
 ## Development
@@ -518,7 +518,7 @@ Apache-2.0
 # logfx（日本語）
 
 **Flix の構造化ログ。** `Logfx` effect で 1 行を出し、出力先（Sink）は値として差し替える。
-JDK より外の依存は無く、実験フラグも要らない。0.3.3 から Flix 0.76.0 で作っている（0.75.x で使うなら 0.3.2）。
+0.3.3 から Flix 0.76.0 で作っている（0.75.x で使うなら 0.3.2）。
 
 > 上の[英語版](#logfx)が正。ずれていたらそちらを見る。
 
@@ -977,7 +977,7 @@ semver。Flix にはまだ慣行が無いので `0.x` の規則を明文化す�
 
 これは非公開のリポジトリで作っている Flix 製のヘッドレス CMS から切り出した物。そのプロジェクトが
 logfx を使わなくなったら、このリポジトリはアーカイブして README の 1 行目にそう書く。その時点の
-バージョンはそのまま動く（Maven 依存の無いソースのパッケージで、Flix の release に固定されている）。
+バージョンはそのまま動く（Flix の release に固定したソースのパッケージ）。
 放置されたライブラリの害は「止まっていること」より「止まっているか分からないこと」なので、
 条件を先に書いておく。
 
