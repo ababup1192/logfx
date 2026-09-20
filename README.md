@@ -6,6 +6,12 @@
 where it goes is a plain value (`Sink`) you compose and swap. Nothing outside the JDK — no Maven
 dependencies, no experimental compiler flags. Built with Flix 0.76.0 from 0.3.3 on (0.3.2 is the last version for 0.75.x).
 
+Under `[dependencies]` in your `flix.toml`:
+
+```toml
+"github:ababup1192/logfx" = { version = "0.3.3", security = "unrestricted" }
+```
+
 ```flix
 import java.lang.System
 
@@ -38,9 +44,20 @@ def main(): Unit \ IO =
 
 That is one line; it is wrapped here so you can read it.
 
+There are three handlers, and which one you want is decided by where you are:
+
 | | |
 |---|---|
-| Install | `"github:ababup1192/logfx" = { version = "0.3.3", security = "unrestricted" }` under `[dependencies]` |
+| `Logfx.runWithMin(min, sink)` | A running program. Lines below `min` get `false` from `enabled` and are never built |
+| `Logfx.runWith(sink)` | The same, with every severity passed on — `runWithMin(Severity.Trace, sink)` |
+| `Logfx.runWithList(thunk)` | A test. Returns `(result, List[Record])`, no `IO`, every severity enabled |
+
+`Logfx.Fields.int` takes an `Int64`, which is why the quickstart writes `200i64`. An `Int32` goes
+through `Int32.toInt64`; there is no overload that clamps it for you.
+
+| | |
+|---|---|
+| Install | `"github:ababup1192/logfx" = { version = "0.3.3", security = "unrestricted" }` under `[dependencies]` in `flix.toml` |
 | API reference | <https://ababup1192.github.io/logfx/Logfx.html> |
 | Runnable examples | [`examples/`](examples) — the block above is [`examples/quickstart`](examples/quickstart), and CI compiles it |
 
@@ -51,8 +68,19 @@ The short form (`= "0.3.3"`) is rejected by Flix for a package that uses Java in
 
 Every JSON block below is one line exactly as it is emitted, wrapped here so you can read it.
 
-**Compose the destination in four lines.** A `Sink` is `Record -> Unit \ IO`, and everything that
-wraps one has that same type, so they just nest.
+### Compose the destination in four lines
+
+A `Sink` is `Record -> Unit \ IO`, and everything that wraps one has that same type, so they just
+nest. A `Record` is one log line, a Flix record with three fields and nothing else:
+
+| | |
+|---|---|
+| `severity` | `Logfx.Severity` |
+| `message` | `String` — a short sentence for a human |
+| `fields` | `Logfx.Fields`, an alias for `Map[String, Logfx.Value]` |
+
+There is no `time` on a `Record`: `Sink.json` stamps it from the clock you hand it, so a line stays
+a pure value until it is rendered.
 
 ```flix
 Logfx.Sink.minSeverity(Logfx.Severity.Info,
@@ -74,8 +102,10 @@ Logfx.Sink.minSeverity(Logfx.Severity.Info,
 shipping to a collector, buffering in a test — all of that is your code, and it is a `def` you pass
 in. This library does not grow output backends.
 
-**Decide the severity from the fields you already collected.** `emit` takes the severity as a
-value, and the accessors let a caller read its own attributes back.
+### Decide the severity from the fields you already collected
+
+`Logfx.log` takes the severity as a value, and the accessors let a caller read its own attributes
+back. `Logfx.info` / `Logfx.warn` and the rest are the same call with the severity already chosen.
 
 ```flix
 /// A 200 that failed to authenticate is still worth a warning.
@@ -85,6 +115,9 @@ def severityOf(path: String, status: Int32, fields: Logfx.Fields): Logfx.Severit
     else if (Map.get("auth.result", fields) |> Option.flatMap(Logfx.valueAsStr) == Some("invalid")) Logfx.Severity.Warn
     else if (String.endsWith(suffix = "/health", path)) Logfx.Severity.Debug
     else Logfx.Severity.Info
+
+def logRequest(path: String, status: Int32, fields: Logfx.Fields): Unit \ Logfx =
+    fields |> Logfx.log(severityOf(path, status, fields), "request")
 ```
 
 ```json
@@ -103,7 +136,10 @@ A 200 that is a warning: the status code alone would never have told you. The `/
 same idea pointed the other way — a health check stops filling the dashboard without leaving the
 logs.
 
-**Attach a span once; every line inside carries it.**
+### Attach a span once; every line inside carries it
+
+A span here is not a trace span: it is the set of fields `withFields` attaches to everything logged
+inside it. Nothing is sampled, nothing is timed, and no id is generated for you.
 
 ```flix
 run {
@@ -119,7 +155,7 @@ run {
 Now `| json | request_id="01JC5H"` pulls back the whole request, including the lines you wrote
 three call levels down.
 
-**Turn a caught exception into fields something can count.**
+### Turn a caught exception into fields something can count
 
 ```flix
 Logfx.Fields.empty()
@@ -148,8 +184,9 @@ Logfx.Fields.empty()
 `exception.type` is a scalar, so it groups. The stack trace is the Flix frames and nothing else —
 see [what logfx trims](#what-logfx-trims-on-the-way-out) for why that matters at 3 a.m.
 
-**Fields are a plain `Map[String, Value]`, so your own merge rule fits.** Two transactions in one
-request should add up, not overwrite each other:
+### Fields are a plain `Map[String, Value]`, so your own merge rule fits
+
+Two transactions in one request should add up, not overwrite each other:
 
 ```flix
 def addCounts(incoming: Logfx.Fields, existing: Logfx.Fields): Logfx.Fields =
@@ -167,8 +204,10 @@ def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = ma
 
 `2 + 3 = 5`, not `3`. A per-request SQL budget is now a number you can alert on.
 
-**Build the expensive fields only if the line is going to exist.** `enabled` is an operation of the
-effect, so the answer comes from the handler before anything is built:
+### Build the expensive fields only if the line is going to exist
+
+`enabled` is an operation of the effect, so the answer comes from the handler before anything is
+built:
 
 ```flix
 Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
@@ -178,8 +217,9 @@ At a threshold of `Info` this emits nothing **and** `explain(sql)` never runs �
 1,543 ns an emitted line costs. Ask directly with `Logfx.enabled(severity)` when the work is bigger
 than one field.
 
-**Keep the request alive when the sink dies.** `runWith` never lets a failing sink escape into your
-code: at the point the effect operation runs, the caller's frames are already unwound, so a throw
+### Keep the request alive when the sink dies
+
+`runWith` never lets a failing sink escape into your code: at the point the effect operation runs, the caller's frames are already unwound, so a throw
 would sail past the caller's `catch` and skip transaction cleanup. Logging must not take the
 request down with it.
 
@@ -202,8 +242,10 @@ Logfx.Sink.fallback(toCollector, Logfx.Sink.json(clock, line -> System.err.print
 The line itself reaches `stderr`, with the exception that killed the primary added to it. What an
 operator needs is the line, not a notification about the line.
 
-**Test what you logged, as values.** `runWithList` is pure — no `IO` — and enables every severity,
-so a test never depends on the deployment's threshold.
+### Test what you logged, as values
+
+`runWithList` is pure — no `IO` — and enables every severity, so a test never depends on the
+deployment's threshold.
 
 ```flix
 let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
@@ -221,6 +263,9 @@ nothing you meant to check.
 Keys follow the [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/)
 (`http.request.method`, `http.response.status_code`, `exception.type`, …). That is not decoration:
 it is what lets a query exist before the incident does.
+
+The queries below are Loki's LogQL; the same four can be written on any backend that parses the
+JSON.
 
 ```logql
 {service="api"} | json | request_id="01J..."                                  # one request, every line
@@ -249,6 +294,9 @@ Everything logfx needs decided lives in one place: your entry point. Your own fu
 `\ Logfx` and nothing more. `IO` shows up only because the work itself does it — or because you
 called `Logfx.exception`, which reads a `Throwable`. A function that only logs is `\ Logfx` alone,
 and writing `\ Logfx + IO` there is rejected with `Unused effect: 'IO'`.
+
+There are six severities, lightest first: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`.
+`Logfx.parseSeverity` takes those six names and nothing else, case insensitive.
 
 ```flix
 def main(): Unit \ IO =
@@ -442,7 +490,13 @@ Apache-2.0
 **Flix の構造化ログ。** `Logfx` effect で 1 行を出し、出力先（Sink）は値として差し替える。
 JDK より外の依存は無く、実験フラグも要らない。0.3.3 から Flix 0.76.0 で作っている（0.75.x で使うなら 0.3.2）。
 
-> 上の英語版が正。ずれていたらそちらを見る。
+> 上の[英語版](#logfx)が正。ずれていたらそちらを見る。
+
+`flix.toml` の `[dependencies]` に:
+
+```toml
+"github:ababup1192/logfx" = { version = "0.3.3", security = "unrestricted" }
+```
 
 ```flix
 import java.lang.System
@@ -476,6 +530,17 @@ def main(): Unit \ IO =
 
 出るのは 1 行。読めるように折り返してある。
 
+handler は 3 つあり、どこで使うかで決まる:
+
+| | |
+|---|---|
+| `Logfx.runWithMin(min, sink)` | 動かすプログラム。`min` より軽い行は `enabled` が `false` を返し、組み立てもされない |
+| `Logfx.runWith(sink)` | 同じだが全 severity を通す（`runWithMin(Severity.Trace, sink)`） |
+| `Logfx.runWithList(thunk)` | テスト。`(結果, List[Record])` を返す。`IO` が付かず、全 severity が有効 |
+
+`Logfx.Fields.int` が取るのは `Int64` で、quickstart が `200i64` と書いているのはそのため。
+`Int32` は `Int32.toInt64` を通して渡す。丸めて受ける形は用意していない。
+
 | | |
 |---|---|
 | 入れる | `flix.toml` の `[dependencies]` に `"github:ababup1192/logfx" = { version = "0.3.3", security = "unrestricted" }` |
@@ -483,14 +548,25 @@ def main(): Unit \ IO =
 | 動く例 | [`examples/`](examples) — 上の塊がそのまま [`examples/quickstart`](examples/quickstart) で、CI がコンパイルしている |
 
 `security = "unrestricted"` が要るのは、`Logfx.exception` が `java.lang.Throwable` を読むため。
-バージョンだけを書く短い形（`= "0.3.2"`）だと Flix が取り込みを断る。
+バージョンだけを書く短い形（`= "0.3.3"`）だと Flix が取り込みを断る。
 
 ## 何ができるか
 
 下の JSON はどれも実際に出る 1 行で、読めるように折り返してある。
 
-**出力先は 4 行で組める。** `Sink` は `Record -> Unit \ IO` で、それを包む物も全部同じ型なので、
-そのまま重なる。
+### 出力先は 4 行で組める
+
+`Sink` は `Record -> Unit \ IO` で、それを包む物も全部同じ型なので、そのまま重なる。
+`Record` はログ 1 行で、フィールドが 3 つだけの Flix のレコード:
+
+| | |
+|---|---|
+| `severity` | `Logfx.Severity` |
+| `message` | `String`。人が読む短い文 |
+| `fields` | `Logfx.Fields`（`Map[String, Logfx.Value]` の別名） |
+
+`Record` に `time` は無い。`Sink.json` が渡された clock から自分で打つので、
+JSON にするまで 1 行は純粋な値のまま。
 
 ```flix
 Logfx.Sink.minSeverity(Logfx.Severity.Info,
@@ -512,8 +588,10 @@ Logfx.Sink.minSeverity(Logfx.Severity.Info,
 ファイルに書く・別の場所へ送る・テストで溜める、はすべて利用側のコードで、渡すのは `def` 1 つ。
 ライブラリ側に出力先を増やさない。
 
-**severity は、既に集めた fields から決められる。** `emit` は severity を値で取り、accessor が
-自分の属性を読み返せる。
+### severity は、既に集めた fields から決められる
+
+`Logfx.log` は severity を値で取り、accessor が自分の属性を読み返せる。`Logfx.info` /
+`Logfx.warn` などは、severity を先に決めてある同じ呼び出し。
 
 ```flix
 /// 認証に失敗した 200 は、それでも warn に上げたい。
@@ -523,6 +601,9 @@ def severityOf(path: String, status: Int32, fields: Logfx.Fields): Logfx.Severit
     else if (Map.get("auth.result", fields) |> Option.flatMap(Logfx.valueAsStr) == Some("invalid")) Logfx.Severity.Warn
     else if (String.endsWith(suffix = "/health", path)) Logfx.Severity.Debug
     else Logfx.Severity.Info
+
+def logRequest(path: String, status: Int32, fields: Logfx.Fields): Unit \ Logfx =
+    fields |> Logfx.log(severityOf(path, status, fields), "request")
 ```
 
 ```json
@@ -540,7 +621,10 @@ def severityOf(path: String, status: Int32, fields: Logfx.Fields): Logfx.Severit
 200 なのに warn。status code だけを見ていては絶対に出てこない行。`/health` の 1 行は同じ考えを
 逆に使った物で、外形監視でダッシュボードを埋めずに、ログには残す。
 
-**span は 1 回付ければ、中の行すべてに付く。**
+### span は 1 回付ければ、中の行すべてに付く
+
+ここで言う span は trace の span ではなく、`withFields` で張った区間の中で出る行すべてに付く
+フィールドの集まり。サンプリングも時間の計測もせず、id も自動では作らない。
 
 ```flix
 run {
@@ -555,7 +639,7 @@ run {
 
 これで `| json | request_id="01JC5H"` が 1 リクエスト分を全部引く。3 段下で書いた行も一緒に来る。
 
-**捕まえた例外は、集計できるフィールドになる。**
+### 捕まえた例外は、集計できるフィールドになる
 
 ```flix
 Logfx.Fields.empty()
@@ -584,8 +668,9 @@ Logfx.Fields.empty()
 `exception.type` はスカラーなので、そのまま group by できる。stacktrace は Flix の frame だけで、
 その理由は[出る途中で削る物](#logfx-が出る途中で削る物)にある。深夜 3 時に効いてくる。
 
-**Fields はただの `Map[String, Value]` なので、独自のマージ規則が書ける。** 1 リクエストで
-Tx を 2 回張ったら、上書きではなく足したい:
+### Fields はただの `Map[String, Value]` なので、独自のマージ規則が書ける
+
+1 リクエストで Tx を 2 回張ったら、上書きではなく足したい:
 
 ```flix
 def addCounts(incoming: Logfx.Fields, existing: Logfx.Fields): Logfx.Fields =
@@ -603,8 +688,9 @@ def plus(incoming: Logfx.Value, existing: Option[Logfx.Value]): Logfx.Value = ma
 
 `3` ではなく `2 + 3 = 5`。1 リクエストあたりの SQL の上限が、アラートを書ける数字になる。
 
-**重い fields は、行が本当に出る時だけ組み立てる。** `enabled` は effect の op なので、
-組み立てる前に handler が答える:
+### 重い fields は、行が本当に出る時だけ組み立てる
+
+`enabled` は effect の op なので、組み立てる前に handler が答える:
 
 ```flix
 Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("plan", explain(sql)))
@@ -613,7 +699,9 @@ Logfx.debugWith("query plan", () -> Logfx.Fields.empty() |> Logfx.Fields.str("pl
 段が `Info` なら行が出ないだけでなく、`explain(sql)` も走らない。166 ns で、出す行の 1,543 ns に対して
 9 分の 1。フィールド 1 つより大きい仕事なら `Logfx.enabled(severity)` で直接訊く。
 
-**Sink が壊れてもリクエストは死なない。** `runWith` は sink の例外を呼ぶ側に漏らさない。
+### Sink が壊れてもリクエストは死なない
+
+`runWith` は sink の例外を呼ぶ側に漏らさない。
 effect の op が走る時点で呼ぶ側の frame は巻き戻っていて、投げても呼ぶ側の `catch` を素通りし、
 Tx の後始末が飛ぶため。ログの失敗で業務を落とさない。
 
@@ -636,8 +724,10 @@ Logfx.Sink.fallback(toCollector, Logfx.Sink.json(clock, line -> System.err.print
 行そのものが stderr に出る。primary を殺した例外が付いた形で。運用者が要るのは通知ではなく、
 消えたはずの行そのもの。
 
-**出したログは値としてテストできる。** `runWithList` は純粋（`IO` が付かない）で全段を有効に
-するので、本番の段の設定にテストが引きずられない。
+### 出したログは値としてテストできる
+
+`runWithList` は純粋（`IO` が付かない）で全段を有効にするので、本番の段の設定にテストが
+引きずられない。
 
 ```flix
 let (status, lines) = Logfx.runWithList(() -> handleRequest("r1", "GET", "/nope"));
@@ -654,6 +744,8 @@ Assert.assertEq(
 キーは [OpenTelemetry の意味づけ規約](https://opentelemetry.io/docs/specs/semconv/)に合わせてある
 （`http.request.method`、`http.response.status_code`、`exception.type` …）。これは飾りではなく、
 障害が起きる前にクエリを書いておけるかどうかの話。
+
+下のクエリは Loki の LogQL。JSON を読める基盤なら、同じ 4 本を別の書き方で書ける。
 
 ```logql
 {service="api"} | json | request_id="01J..."                                  # 1 リクエストの行を全部
@@ -681,6 +773,9 @@ sum(count_over_time({service="api"} | json | __error__ != "" [5m])) > 0       # 
 logfx について決める事は全部 1 か所（入口）に集まる。利用側の関数に付く効果は `\ Logfx` だけ。
 `IO` が増えるのは、仕事の方が触るか、`Throwable` を読む `Logfx.exception` を呼んだ時。ログしか
 しない関数は `\ Logfx` のみで、`\ Logfx + IO` と書くと `Unused effect: 'IO'` で断られる。
+
+severity は軽い順に `Trace` / `Debug` / `Info` / `Warn` / `Error` / `Fatal` の 6 つ。
+`Logfx.parseSeverity` が取るのもこの 6 語だけで、大文字小文字は区別しない。
 
 ```flix
 def main(): Unit \ IO =
